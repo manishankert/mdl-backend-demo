@@ -2318,3 +2318,27 @@ def build_mdl_docx_auto(req: BuildAuto):
         return JSONResponse(status_code=200, content={"ok": False, "message": f"{e.status_code}: {e.detail}"})
     except Exception as e:
         return JSONResponse(status_code=200, content={"ok": False, "message": f"Unhandled error: {e}"})
+
+
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    if request.url.path.endswith("/build-mdl-docx-auto"):
+        raw = await request.body()
+        try:
+            logging.info("== /build-mdl-docx-auto RAW BODY ==")
+            logging.info(raw.decode("utf-8", errors="ignore"))
+        except Exception:
+            pass
+        # re-create the request stream for downstream
+        request._receive = (lambda b=raw: {"type": "http.request", "body": b, "more_body": False})
+    return await call_next(request)
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logging.info("== Pydantic Validation Errors ==")
+    logging.info(exc.errors())
+    return JSONResponse(status_code=422, content={"ok": False, "errors": exc.errors()})        
