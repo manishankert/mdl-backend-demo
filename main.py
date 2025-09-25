@@ -2261,7 +2261,6 @@ def build_mdl_docx_auto(req: BuildAuto):
             federal_awards=federal_awards,
             only_flagged=req.only_flagged,
             max_refs=req.max_refs,
-            treasury_listings=req.treasury_listings,
             include_no_qc_line=req.include_no_qc_line,   # was hardcoded True; keep it user-driven
             include_no_cap_line=req.include_no_cap_line, # optional but keeps parity
             treasury_listings=req.treasury_listings,
