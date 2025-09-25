@@ -1891,10 +1891,13 @@ class BuildByReportTemplated(BuildByReport):
 # ------------------------------------------------------------------------------
 @app.get("/healthz")
 def healthz():
+    logging.info(f"Incoming payload to healthsz endpoint")
     return {"ok": True, "time": datetime.utcnow().isoformat()}
 
 @app.post("/echo")
 def echo(payload: Dict[str, Any]):
+    logging.info(f"Incoming payload to echo endpoint: {payload}")
+    #logging.info(f"Incoming payload: {payload.dict()}")
     return {"received": payload, "ts": datetime.utcnow().isoformat()}
 
 @app.get("/debug/env")
