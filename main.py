@@ -2359,7 +2359,42 @@ from fastapi.responses import JSONResponse
 #         return JSONResponse(status_code=200, content={"ok": False, "message": f"{e.status_code}: {e.detail}"})
 #     except Exception as e:
 #         return JSONResponse(status_code=200, content={"ok": False, "message": f"Unhandled error: {e}"})
+def _from_fac_general(gen_rows):
+    """
+    Pulls reasonable defaults from FAC /general for headers.
+    Expects select to include:
+      auditee_address_line_1,auditee_city,auditee_state,auditee_zip,
+      auditor_firm_name,fy_end_date
+    """
+    if not gen_rows:
+        return {}
+    g = gen_rows[0]
+    # fy_end_date can be 'YYYY-MM-DD' -> convert to 'Month DD, YYYY' if present
+    per_end = None
+    try:
+        from datetime import datetime
+        if g.get("fy_end_date"):
+            dt = datetime.fromisoformat(g["fy_end_date"])
+            per_end = dt.strftime("%B %-d, %Y") if hasattr(dt, "strftime") else None
+    except Exception:
+        pass
 
+    return {
+        "street_address": g.get("auditee_address_line_1") or "",
+        "city": g.get("auditee_city") or "",
+        "state": g.get("auditee_state") or "",
+        "zip_code": g.get("auditee_zip") or "",
+        "auditor_name": g.get("auditor_firm_name") or "",
+        "period_end_text": per_end,
+    }
+
+def _title_with_article(name: str) -> str:
+    """Ensure recipient string starts with 'The ' when it reads better."""
+    if not name:
+        return ""
+    s = name.strip()
+    return s if s.lower().startswith("the ") else f"The {s}"
+    
 @app.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildAuto):
     try:
@@ -2378,6 +2413,69 @@ def build_mdl_docx_auto(req: BuildAuto):
 
         # 2) (unchanged) fetch findings / texts / caps / awards ...
         #    ... your existing code here ...
+
+        # 2) Fetch findings / finding text / CAPs (ALWAYS initialize lists)
+        findings_params = {
+            "report_id": f"eq.{report_id}",
+            "select": ("reference_number,award_reference,type_requirement,"
+                    "is_material_weakness,is_significant_deficiency,is_questioned_costs,"
+                    "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding"),
+            "order": "reference_number.asc",
+            "limit": str(req.max_refs or 15),
+        }
+        if req.only_flagged:
+            flagged = [
+                "is_material_weakness", "is_significant_deficiency", "is_questioned_costs",
+                "is_modified_opinion", "is_other_findings", "is_other_matters", "is_repeat_finding",
+            ]
+            findings_params["or"] = "(" + ",".join(f"{f}.eq.true" for f in flagged) + ")"
+
+        try:
+            fac_findings = _fac_get("findings", findings_params) or []
+        except Exception:
+            fac_findings = []
+
+        # refs are safe even if no findings
+        refs = [r.get("reference_number") for r in fac_findings if r.get("reference_number")]
+        refs = refs[: (req.max_refs or 15)]
+
+        # Always define these
+        if refs:
+            try:
+                fac_findings_text = _fac_get("findings_text", {
+                    "report_id": f"eq.{report_id}",
+                    "select": "finding_ref_number,finding_text",
+                    "order": "finding_ref_number.asc",
+                    "limit": str(len(refs)),
+                    "or": _or_param("finding_ref_number", refs),
+                }) or []
+            except Exception:
+                fac_findings_text = []
+            try:
+                fac_caps = _fac_get("corrective_action_plans", {
+                    "report_id": f"eq.{report_id}",
+                    "select": "finding_ref_number,planned_action",
+                    "order": "finding_ref_number.asc",
+                    "limit": str(len(refs)),
+                    "or": _or_param("finding_ref_number", refs),
+                }) or []
+            except Exception:
+                fac_caps = []
+        else:
+            fac_findings_text, fac_caps = [], []
+
+        # Awards (optional, still safe)
+        federal_awards = []
+        if req.include_awards:
+            try:
+                federal_awards = _fac_get("federal_awards", {
+                    "report_id": f"eq.{report_id}",
+                    "select": "award_reference,federal_program_name,assistance_listing",
+                    "order": "award_reference.asc",
+                    "limit": "200",
+                }) or []
+            except Exception:
+                federal_awards = []
 
         # ---------- NEW: build the model -------------
         mdl_model = build_mdl_model_from_fac(
