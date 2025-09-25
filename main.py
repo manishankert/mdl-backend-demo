@@ -26,6 +26,8 @@ from docx.oxml.ns import qn
 from bs4 import BeautifulSoup
 from html2docx import HTML2Docx
 import os, json, requests
+import logging
+logging.basicConfig(level=logging.INFO)
 
 # Azure
 from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas
@@ -2189,6 +2191,7 @@ from fastapi.responses import JSONResponse
 
 @app.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildAuto):
+    logging.info(f"Incoming payload: {req.dict()}")
     try:
         # 1) Find newest report_id for EIN/year
         gen = _fac_get("general", {
