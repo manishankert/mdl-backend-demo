@@ -2398,7 +2398,16 @@ def build_mdl_docx_auto(req: BuildAuto):
 
         # ---------- NEW: enrich headers from FAC + defaults ----------
         fac_defaults = _from_fac_general(gen)
-
+        def _normalize_auditor_name(name: str) -> str:
+            """
+            Ensure auditor firm name reads naturally: 
+            'prepared by the Rehmann Robson, LLC' instead of missing article.
+            """
+            if not name:
+                return ""
+            clean = name.strip()
+            # Only add "the" if not already present (case-insensitive)
+            return clean if clean.lower().startswith("the ") else f"the {clean}"
         # Make "The City of ..." if user didn't explicitly override
         recipient = _title_with_article(req.recipient_name or req.auditee_name)
 
@@ -2414,7 +2423,8 @@ def build_mdl_docx_auto(req: BuildAuto):
             "zip_code": req.zip_code or fac_defaults.get("zip_code") or "",
 
             # auditor
-            "auditor_name": req.auditor_name or fac_defaults.get("auditor_name") or "",
+            #"auditor_name": req.auditor_name or fac_defaults.get("auditor_name") or "",
+            "auditor_name": _normalize_auditor_name(req.auditor_name or fac_defaults.get("auditor_name") or ""),
 
             # POC (optional, user-provided only)
             "poc_name": _none_if_placeholder(req.poc_name),
