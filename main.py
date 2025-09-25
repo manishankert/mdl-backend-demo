@@ -577,14 +577,52 @@ def _best_summary_label_openai(summary: str, labels: List[str]) -> Optional[str]
         pass
     return None
 
+# def upload_and_sas(container: str, blob_name: str, data: bytes, ttl_minutes: int = 120) -> str:
+#     if not AZURE_CONN_STR:
+#         raise RuntimeError("AZURE_STORAGE_CONNECTION_STRING not set")
+
+#     info = _parse_conn_str(AZURE_CONN_STR)
+#     account_name = info["AccountName"]
+#     account_key  = info["AccountKey"]
+#     blob_endpoint = info.get("BlobEndpoint")
+
+#     bsc = _blob_service_client()
+#     cc = bsc.get_container_client(container)
+#     try:
+#         cc.create_container()
+#     except Exception:
+#         pass
+#     cc.upload_blob(name=blob_name, data=data, overwrite=True)
+
+#     proto = "http" if (blob_endpoint and ("127.0.0.1" in blob_endpoint or "localhost" in blob_endpoint)) else None
+#     sas = generate_blob_sas(
+#         account_name=account_name,
+#         account_key=account_key,
+#         container_name=container,
+#         blob_name=blob_name,
+#         permission=BlobSasPermissions(read=True),
+#         expiry=datetime.utcnow() + timedelta(minutes=ttl_minutes),
+#         version=AZURITE_SAS_VERSION,
+#         protocol=proto,
+#     )
+#     sas_q = quote(sas, safe="=&")
+
+#     base = blob_endpoint.rstrip("/") if blob_endpoint else f"https://{account_name}.blob.core.windows.net"
+#     return f"{base}/{container}/{blob_name}?{sas_q}"
+
+
+from urllib.parse import quote
+from datetime import datetime, timedelta
+from azure.storage.blob import BlobSasPermissions, generate_blob_sas
+
 def upload_and_sas(container: str, blob_name: str, data: bytes, ttl_minutes: int = 120) -> str:
     if not AZURE_CONN_STR:
         raise RuntimeError("AZURE_STORAGE_CONNECTION_STRING not set")
 
     info = _parse_conn_str(AZURE_CONN_STR)
-    account_name = info["AccountName"]
-    account_key  = info["AccountKey"]
-    blob_endpoint = info.get("BlobEndpoint")
+    account_name  = info["AccountName"]
+    account_key   = info["AccountKey"]
+    blob_endpoint = info.get("BlobEndpoint")  # e.g. https://<acct>.blob.core.windows.net
 
     bsc = _blob_service_client()
     cc = bsc.get_container_client(container)
@@ -592,24 +630,34 @@ def upload_and_sas(container: str, blob_name: str, data: bytes, ttl_minutes: int
         cc.create_container()
     except Exception:
         pass
+
     cc.upload_blob(name=blob_name, data=data, overwrite=True)
 
-    proto = "http" if (blob_endpoint and ("127.0.0.1" in blob_endpoint or "localhost" in blob_endpoint)) else None
-    sas = generate_blob_sas(
+    # Build SAS (no extra encoding)
+    sas_kwargs = dict(
         account_name=account_name,
         account_key=account_key,
         container_name=container,
         blob_name=blob_name,
         permission=BlobSasPermissions(read=True),
+        # allow 5 min clock skew
+        start=datetime.utcnow() - timedelta(minutes=5),
         expiry=datetime.utcnow() + timedelta(minutes=ttl_minutes),
-        version=AZURITE_SAS_VERSION,
-        protocol=proto,
     )
-    sas_q = quote(sas, safe="=&")
+
+    # Only force http/version when running against Azurite
+    if blob_endpoint and ("127.0.0.1" in blob_endpoint or "localhost" in blob_endpoint):
+        sas_kwargs["protocol"] = "http"               # ok for Azurite
+        if AZURITE_SAS_VERSION:
+            sas_kwargs["version"] = AZURITE_SAS_VERSION
+
+    sas = generate_blob_sas(**sas_kwargs)
 
     base = blob_endpoint.rstrip("/") if blob_endpoint else f"https://{account_name}.blob.core.windows.net"
-    return f"{base}/{container}/{blob_name}?{sas_q}"
-
+    # Important: DO NOT quote/encode the SAS. It is already correctly encoded.
+    # Optionally quote the blob path in case of spaces or special chars.
+    return f"{base}/{container}/{quote(blob_name, safe='/')}?{sas}"
+    
 def save_local_and_url(blob_name: str, data: bytes) -> str:
     full_path = os.path.join(LOCAL_SAVE_DIR, blob_name)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
