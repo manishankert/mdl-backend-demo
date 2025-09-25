@@ -657,7 +657,7 @@ def upload_and_sas(container: str, blob_name: str, data: bytes, ttl_minutes: int
     # Important: DO NOT quote/encode the SAS. It is already correctly encoded.
     # Optionally quote the blob path in case of spaces or special chars.
     return f"{base}/{container}/{quote(blob_name, safe='/')}?{sas}"
-    
+
 def save_local_and_url(blob_name: str, data: bytes) -> str:
     full_path = os.path.join(LOCAL_SAVE_DIR, blob_name)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
@@ -2179,6 +2179,11 @@ class BuildAuto(BaseModel):
     poc_name: Optional[str] = None
     poc_title: Optional[str] = None
     template_path: Optional[str] = None
+    aln_reference_xlsx: Optional[str] = None
+    treasury_contact_email: Optional[str] = None
+    include_no_qc_line: bool = True
+    include_no_cap_line: bool = False
+
 
 from fastapi.responses import JSONResponse
 
@@ -2256,8 +2261,11 @@ def build_mdl_docx_auto(req: BuildAuto):
             federal_awards=federal_awards,
             only_flagged=req.only_flagged,
             max_refs=req.max_refs,
-            include_no_qc_line=True,
             treasury_listings=req.treasury_listings,
+            include_no_qc_line=req.include_no_qc_line,   # was hardcoded True; keep it user-driven
+            include_no_cap_line=req.include_no_cap_line, # optional but keeps parity
+            treasury_listings=req.treasury_listings,
+            aln_reference_xlsx=req.aln_reference_xlsx,   # <-- IMPORTANT (Excel-driven canonicalization)
         )
 
         # 3) Optional header overrides (ignore unresolved ${…})
@@ -2284,7 +2292,9 @@ def build_mdl_docx_auto(req: BuildAuto):
 
         # Make a sensible default folder if missing or placeholder
         dest_folder = _str_or_default(req.dest_path, f"mdl/{req.audit_year}/").lstrip("/")
-
+        # Treasury contact email (used by template replacements / fallback injection)
+        if getattr(req, "treasury_contact_email", None):
+            mdl_model["treasury_contact_email"] = req.treasury_contact_email
         # 5) Build DOCX
         try:
             data = build_docx_from_template(mdl_model, template_path=template_path)
