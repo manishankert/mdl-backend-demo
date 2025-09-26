@@ -125,6 +125,10 @@ def _apply_grid_borders(tbl: Table):
         borders.append(e)
     tblPr.append(borders)
 
+def _title_case(s: str) -> str:
+    if not s:
+        return ""
+    return s.title()
 
 def _remove_paragraph(p):
     # safe remove of a docx paragraph
@@ -137,6 +141,7 @@ def _norm_txt(s: str) -> str:
     s = s.replace("\u00A0", " ").replace("\xa0", " ")
     s = s.replace("–", "-").replace("—", "-")
     return " ".join(s.split())
+
 def _title_with_article(name: str) -> str:
     if not name:
         return ""
@@ -1782,7 +1787,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
 
     # 1) Replace placeholders everywhere (body + headers/footers + nested tables)
     _replace_placeholders_docwide(doc, mapping)
-
+    _unset_all_caps_everywhere(doc)
 
     # 2) Insert program tables at the anchor (do this BEFORE stripping bracketed tokens,
     # because cleanup would otherwise delete the [[PROGRAM_TABLES]] marker)
@@ -2233,132 +2238,6 @@ class BuildAuto(BaseModel):
 
 from fastapi.responses import JSONResponse
 
-# @app.post("/build-mdl-docx-auto")
-# def build_mdl_docx_auto(req: BuildAuto):
-#     logging.info(f"Incoming payload: {req.dict()}")
-#     try:
-#         # 1) Find newest report_id for EIN/year
-#         gen = _fac_get("general", {
-#             "audit_year": f"eq.{req.audit_year}",
-#             "auditee_ein": f"eq.{req.ein}",
-#             "select": "report_id,fac_accepted_date",
-#             "order": "fac_accepted_date.desc",
-#             "limit": 1
-#         })
-#         if not gen:
-#             return {"ok": False, "message": f"No FAC report found for EIN {req.ein} in {req.audit_year}."}
-
-#         report_id = gen[0]["report_id"]
-
-#         # 2) Findings
-#         findings_params = {
-#             "report_id": f"eq.{report_id}",
-#             "select": "reference_number,award_reference,type_requirement,"
-#                       "is_material_weakness,is_significant_deficiency,is_questioned_costs,"
-#                       "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding",
-#             "order": "reference_number.asc",
-#             "limit": str(req.max_refs)
-#         }
-#         if req.only_flagged:
-#             flagged = [
-#                 "is_material_weakness","is_significant_deficiency","is_questioned_costs",
-#                 "is_modified_opinion","is_other_findings","is_other_matters","is_repeat_finding"
-#             ]
-#             findings_params["or"] = "(" + ",".join([f"{f}.eq.true" for f in flagged]) + ")"
-#         fac_findings = _fac_get("findings", findings_params)
-
-#         refs = [row.get("reference_number") for row in fac_findings if row.get("reference_number")]
-#         refs = refs[: req.max_refs]
-
-#         if refs:
-#             fac_findings_text = _fac_get("findings_text", {
-#                 "report_id": f"eq.{report_id}",
-#                 "select": "finding_ref_number,finding_text",
-#                 "order": "finding_ref_number.asc",
-#                 "limit": str(len(refs)),
-#                 "or": _or_param("finding_ref_number", refs)
-#             })
-#             fac_caps = _fac_get("corrective_action_plans", {
-#                 "report_id": f"eq.{report_id}",
-#                 "select": "finding_ref_number,planned_action",
-#                 "order": "finding_ref_number.asc",
-#                 "limit": str(len(refs)),
-#                 "or": _or_param("finding_ref_number", refs)
-#             })
-#         else:
-#             fac_findings_text, fac_caps = [], []
-
-#         federal_awards = []
-#         if req.include_awards:
-#             federal_awards = _fac_get("federal_awards", {
-#                 "report_id": f"eq.{report_id}",
-#                 "select": "award_reference,federal_program_name",
-#                 "order": "award_reference.asc",
-#                 "limit": "200"
-#             })
-
-#         mdl_model = build_mdl_model_from_fac(
-#             auditee_name=req.auditee_name,
-#             ein=req.ein,
-#             audit_year=req.audit_year,
-#             fac_general=gen,
-#             fac_findings=fac_findings,
-#             fac_findings_text=fac_findings_text,
-#             fac_caps=fac_caps,
-#             federal_awards=federal_awards,
-#             only_flagged=req.only_flagged,
-#             max_refs=req.max_refs,
-#             include_no_qc_line=req.include_no_qc_line,   # was hardcoded True; keep it user-driven
-#             include_no_cap_line=req.include_no_cap_line, # optional but keeps parity
-#             treasury_listings=req.treasury_listings,
-#             aln_reference_xlsx=req.aln_reference_xlsx,   # <-- IMPORTANT (Excel-driven canonicalization)
-#         )
-
-#         # 3) Optional header overrides (ignore unresolved ${…})
-#         header_map = {
-#             "recipient_name":      "auditee_name",       # map to model key
-#             "fy_end_text":         "period_end_text",
-#             "auditor_name":        "auditor_name",
-#             "street_address":      "street_address",
-#             "city":                "city",
-#             "state":               "state",
-#             "zip_code":            "zip_code",
-#             "poc_name":            "poc_name",
-#             "poc_title":           "poc_title",
-#         }
-#         for src, dst in header_map.items():
-#             val = _none_if_placeholder(getattr(req, src, None))
-#             if val:
-#                 mdl_model[dst] = val
-
-#         # 4) Template path & dest_path
-#         template_path = _none_if_placeholder(req.template_path) or MDL_TEMPLATE_PATH
-#         if not template_path:
-#             return {"ok": False, "message": "Template path not provided (template_path or MDL_TEMPLATE_PATH)."}
-
-#         # Make a sensible default folder if missing or placeholder
-#         dest_folder = _str_or_default(req.dest_path, f"mdl/{req.audit_year}/").lstrip("/")
-#         # Treasury contact email (used by template replacements / fallback injection)
-#         if getattr(req, "treasury_contact_email", None):
-#             mdl_model["treasury_contact_email"] = req.treasury_contact_email
-#         # 5) Build DOCX
-#         try:
-#             data = build_docx_from_template(mdl_model, template_path=template_path)
-#         except HTTPException as e:
-#             return {"ok": False, "message": f"Template error: {e.detail}"}
-#         except Exception as e:
-#             return {"ok": False, "message": f"Unexpected template error: {e}"}
-
-#         # 6) Upload
-#         base = f"MDL-{sanitize(req.auditee_name)}-{sanitize(req.ein)}-{req.audit_year}.docx"
-#         blob_name = f"{dest_folder}{base}" if dest_folder else base
-#         url = upload_and_sas(AZURE_CONTAINER, blob_name, data) if AZURE_CONN_STR else save_local_and_url(blob_name, data)
-#         return {"ok": True, "url": url, "blob_path": f"{AZURE_CONTAINER}/{blob_name}"}
-
-#     except HTTPException as e:
-#         return JSONResponse(status_code=200, content={"ok": False, "message": f"{e.status_code}: {e.detail}"})
-#     except Exception as e:
-#         return JSONResponse(status_code=200, content={"ok": False, "message": f"Unhandled error: {e}"})
 def _from_fac_general(gen_rows):
     """
     Pulls reasonable defaults from FAC /general for headers.
@@ -2390,13 +2269,28 @@ def _from_fac_general(gen_rows):
         "poc_title": g.get("auditee_contact_title") or "",
     }
 
-def _title_with_article(name: str) -> str:
-    """Ensure recipient string starts with 'The ' when it reads better."""
-    if not name:
-        return ""
-    s = name.strip()
-    return s if s.lower().startswith("the ") else f"The {s}"
-    
+def _unset_all_caps_everywhere(doc):
+    # body paragraphs
+    for p in doc.paragraphs:
+        for r in p.runs:
+            r.font.all_caps = False
+            r.font.small_caps = False
+    # tables
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    for r in p.runs:
+                        r.font.all_caps = False
+                        r.font.small_caps = False
+    # headers/footers
+    for sec in doc.sections:
+        for container in (sec.header, sec.footer):
+            for p in container.paragraphs:
+                for r in p.runs:
+                    r.font.all_caps = False
+                    r.font.small_caps = False
+
 @app.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildAuto):
     try:
@@ -2498,17 +2392,13 @@ def build_mdl_docx_auto(req: BuildAuto):
 
         # ---------- NEW: enrich headers from FAC + defaults ----------
         fac_defaults = _from_fac_general(gen)
+
         def _normalize_auditor_name(name: str) -> str:
-            """
-            Ensure auditor firm name reads naturally: 
-            'prepared by the Rehmann Robson, LLC' instead of missing article.
-            """
             if not name:
                 return ""
             clean = name.strip()
-            # Only add "the" if not already present (case-insensitive)
             return clean if clean.lower().startswith("the ") else f"the {clean}"
-        # Make "The City of ..." if user didn't explicitly override
+
         recipient = _title_with_article(req.recipient_name or req.auditee_name)
 
         header_overrides = {
@@ -2516,19 +2406,18 @@ def build_mdl_docx_auto(req: BuildAuto):
             "recipient_name": recipient,
             "period_end_text": req.fy_end_text or fac_defaults.get("period_end_text") or mdl_model.get("period_end_text"),
 
-            # address
-            "street_address": req.street_address or fac_defaults.get("street_address") or "",
-            "city": req.city or fac_defaults.get("city") or "",
-            "state": req.state or fac_defaults.get("state") or "",
+            # address (title case street + city, uppercase state, keep zip as-is)
+            "street_address": _title_case(req.street_address or fac_defaults.get("street_address")),
+            "city": _title_case(req.city or fac_defaults.get("city")),
+            "state": (req.state or fac_defaults.get("state") or "").upper(),
             "zip_code": req.zip_code or fac_defaults.get("zip_code") or "",
 
             # auditor
-            #"auditor_name": req.auditor_name or fac_defaults.get("auditor_name") or "",
             "auditor_name": _normalize_auditor_name(req.auditor_name or fac_defaults.get("auditor_name") or ""),
 
-            # NEW: pull from request if given, else FAC, else blank
-            "poc_name":  _none_if_placeholder(req.poc_name)  or fac_defaults.get("poc_name")  or "",
-            "poc_title": _none_if_placeholder(req.poc_title) or fac_defaults.get("poc_title") or "",
+            # POC (title case name + title)
+            "poc_name": _title_case(req.poc_name or fac_defaults.get("poc_name")),
+            "poc_title": _title_case(req.poc_title or fac_defaults.get("poc_title")),
         }
 
         # apply non-empty values only
