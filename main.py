@@ -1126,6 +1126,7 @@ def build_mdl_model_from_fac(
     include_no_cap_line: bool = False,
     treasury_listings: Optional[List[str]] = None,
     aln_reference_xlsx: Optional[str] = None,
+    aln_overrides_by_finding: Optional[Dict[str, str]] = None,
     **_
 ) -> Dict[str, Any]:
     """
@@ -1368,7 +1369,21 @@ def build_mdl_model_from_fac(
             "program_name": meta.get("program_name", "Unknown Program"),
             "findings": []
         })
-
+        
+        # If ALN is Unknown, try to fill from finding-level override (XLSX)
+        if group.get("assistance_listing") in (None, "", "Unknown"):
+            # use the original finding reference if available
+            orig_ref = f.get("reference_number") or ""
+            # try both raw and normalized keys
+            cand_aln = None
+            if aln_overrides_by_finding:
+                cand_aln = (aln_overrides_by_finding.get(orig_ref)
+                            or aln_overrides_by_finding.get(_norm_ref(orig_ref)))
+            if cand_aln:
+                group["assistance_listing"] = cand_aln
+                # if we have an ALN→label map, upgrade program_name too
+                if cand_aln in aln_to_label:
+                    group["program_name"] = aln_to_label[cand_aln]
         summary  = summarize_finding_text(text_by_ref.get(k, ""))
         cap_text = cap_by_ref.get(k)
 
@@ -1378,16 +1393,6 @@ def build_mdl_model_from_fac(
             else ("No CAP required" if include_no_cap_line else "Not Applicable")
         )
 
-        # group["findings"].append({
-        #     "finding_id": f.get("reference_number") or "",
-        #     "compliance_type": f.get("type_requirement") or "",
-        #     "summary": summary,
-        #     "audit_determination": "Sustained",
-        #     "questioned_cost_determination": qcost_det,
-        #     "disallowed_cost_determination": "None",
-        #     "cap_determination": cap_det,
-        #     "cap_text": cap_text,
-        # })
         ctype_code = (f.get("type_requirement") or "").strip().upper()[:1]
         ctype_label = type_map.get(ctype_code) or ctype_code or ""
         matched_label = (_best_summary_label_openai(summary, summary_labels)
@@ -1876,6 +1881,58 @@ def _str_or_default(v, default=""):
         return v
     return default
 
+import requests
+from io import BytesIO
+
+def _read_headers(ws):
+    return [ (c.value or "").strip() if isinstance(c.value, str) else (c.value or "") for c in ws[1] ]
+
+def _find_col(headers, candidates):
+    hl = [str(h).strip().lower() for h in headers]
+    for i, h in enumerate(hl):
+        for cand in candidates:
+            cl = cand.strip().lower()
+            if h == cl or cl in h:
+                return i
+    return None
+
+def _aln_overrides_from_summary(report_id: str):
+    """
+    Returns (aln_by_award, aln_by_finding) by parsing the public FAC summary XLSX.
+    """
+    url = f"https://app.fac.gov/dissemination/summary-report/xlsx/{report_id}"
+    r = requests.get(url, timeout=20)
+    r.raise_for_status()
+
+    import openpyxl
+    wb = openpyxl.load_workbook(BytesIO(r.content), data_only=True)
+
+    aln_by_award, aln_by_finding = {}, {}
+    # Look for a sheet with findings
+    for ws in wb.worksheets:
+        headers = _read_headers(ws)
+        if not any(headers):
+            continue
+        i_findref = _find_col(headers, ["finding_ref_number", "finding reference number", "reference_number"])
+        i_award   = _find_col(headers, ["award_reference", "award reference"])
+        i_aln     = _find_col(headers, ["assistance listing", "assistance listing number", "aln", "cfda", "cfda number"])
+        if i_aln is None:
+            continue
+
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            findref = (row[i_findref] if i_findref is not None else "") or ""
+            award   = (row[i_award]   if i_award   is not None else "") or ""
+            aln     = (row[i_aln]     if i_aln     is not None else "") or ""
+            aln = str(aln).strip()
+            if not aln:
+                continue
+            if award:
+                aln_by_award[str(award).strip()] = aln
+            if findref:
+                aln_by_finding[str(findref).strip()] = aln
+        break  # first matching sheet is enough
+
+    return aln_by_award, aln_by_finding
 
 # ------------------------------------------------------------------------------
 # Schemas
@@ -2007,6 +2064,8 @@ def build_docx_from_fac(req: BuildFromFAC):
     blob_name = f"{folder}{base}" if folder else base
     url = upload_and_sas(AZURE_CONTAINER, blob_name, data) if AZURE_CONN_STR else save_local_and_url(blob_name, data)
     return {"url": url, "blob_path": f"{AZURE_CONTAINER}/{blob_name}", "size_bytes": len(data)}
+
+
 
 @app.post("/build-docx-by-report")
 def build_docx_by_report(req: BuildByReport):
@@ -2306,6 +2365,10 @@ def build_mdl_docx_auto(req: BuildAuto):
             return {"ok": False, "message": f"No FAC report found for EIN {req.ein} in {req.audit_year}."}
 
         report_id = gen[0]["report_id"]
+        try:
+            aln_by_award, aln_by_finding = _aln_overrides_from_summary(report_id)
+        except Exception:
+            aln_by_award, aln_by_finding = {}, {}
 
         # 2) (unchanged) fetch findings / texts / caps / awards ...
         #    ... your existing code here ...
@@ -2372,7 +2435,12 @@ def build_mdl_docx_auto(req: BuildAuto):
                 }) or []
             except Exception:
                 federal_awards = []
-
+        if federal_awards:
+            for a in federal_awards:
+                if not (a.get("assistance_listing") or "").strip():
+                    ar = (a.get("award_reference") or "").strip()
+                    if ar and ar in aln_by_award:
+                        a["assistance_listing"] = aln_by_award[ar]
         # ---------- NEW: build the model -------------
         mdl_model = build_mdl_model_from_fac(
             auditee_name=req.auditee_name,
@@ -2387,7 +2455,8 @@ def build_mdl_docx_auto(req: BuildAuto):
             max_refs=req.max_refs,
             include_no_qc_line=True,
             treasury_listings=req.treasury_listings,
-            aln_reference_xlsx=req.aln_reference_xlsx,  # pass through if provided
+            aln_reference_xlsx=req.aln_reference_xlsx,
+            aln_overrides_by_finding=aln_by_finding,
         )
 
         # ---------- NEW: enrich headers from FAC + defaults ----------
