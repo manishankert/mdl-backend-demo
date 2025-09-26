@@ -2386,6 +2386,8 @@ def _from_fac_general(gen_rows):
         "zip_code": g.get("auditee_zip") or "",
         "auditor_name": g.get("auditor_firm_name") or "",
         "period_end_text": per_end,
+        "poc_name":  g.get("auditee_contact_name")  or "",
+        "poc_title": g.get("auditee_contact_title") or "",
     }
 
 def _title_with_article(name: str) -> str:
@@ -2402,7 +2404,7 @@ def build_mdl_docx_auto(req: BuildAuto):
         gen = _fac_get("general", {
             "audit_year": f"eq.{req.audit_year}",
             "auditee_ein": f"eq.{req.ein}",
-            "select": "report_id,fac_accepted_date,auditee_address_line_1,auditee_city,auditee_state,auditee_zip,auditor_firm_name,fy_end_date",
+            "select": "report_id, fac_accepted_date, auditee_address_line_1, auditee_city, auditee_state, auditee_zip, auditor_firm_name, fy_end_date, auditee_contact_name,auditee_contact_title",
             "order": "fac_accepted_date.desc",
             "limit": 1
         })
@@ -2524,9 +2526,9 @@ def build_mdl_docx_auto(req: BuildAuto):
             #"auditor_name": req.auditor_name or fac_defaults.get("auditor_name") or "",
             "auditor_name": _normalize_auditor_name(req.auditor_name or fac_defaults.get("auditor_name") or ""),
 
-            # POC (optional, user-provided only)
-            "poc_name": _none_if_placeholder(req.poc_name),
-            "poc_title": _none_if_placeholder(req.poc_title),
+            # NEW: pull from request if given, else FAC, else blank
+            "poc_name":  _none_if_placeholder(req.poc_name)  or fac_defaults.get("poc_name")  or "",
+            "poc_title": _none_if_placeholder(req.poc_title) or fac_defaults.get("poc_title") or "",
         }
 
         # apply non-empty values only
