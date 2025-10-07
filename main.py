@@ -1540,6 +1540,33 @@ def _remove_watermarks(doc):
                 parent = pict.getparent()
                 parent.remove(pict)
 
+def _insert_paragraph_after(p: Paragraph, text: str = "") -> Paragraph:
+    new_p = p._element.addnext(p._element.__class__())
+    # Create a real python-docx Paragraph around that element
+    from docx.text.paragraph import Paragraph as _Para
+    new_par = _Para(new_p, p._parent)
+    if text:
+        new_par.add_run(text)
+    return new_par
+
+def _find_para_by_contains(doc: Document, needle: str) -> Optional[Paragraph]:
+    def _norm(s: str) -> str:
+        s = (s or "").replace("\u00A0"," ").replace("\xa0"," ")
+        s = s.replace("\u200b","").replace("\u200c","").replace("\u200d","")
+        return " ".join(s.split())
+    N = _norm(needle)
+    for p in _iter_all_paragraphs_in_container(doc):
+        if N in _norm(_para_text(p)):
+            return p
+    for sec in doc.sections:
+        for p in _iter_all_paragraphs_in_container(sec.header):
+            if N in _norm(_para_text(p)):
+                return p
+        for p in _iter_all_paragraphs_in_container(sec.footer):
+            if N in _norm(_para_text(p)):
+                return p
+    return None
+
 def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> bytes:
     """
     Open a .docx template and:
