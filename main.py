@@ -2213,6 +2213,10 @@ def _unset_all_caps_everywhere(doc):
 def _rewrite_paragraph(p, text):
     _clear_runs(p); p.add_run(text)
 
+def _iter_all_paragraphs(doc):
+    for p in doc.paragraphs:
+        yield p
+        
 def _iter_all_paragraphs_full(doc):
     # body
     for p in doc.paragraphs: yield p
