@@ -106,10 +106,10 @@ def _insert_after(anchor, new_block):
     n = _as_oxml(new_block)
     a.addnext(n)
 
-def _insert_before(anchor, new_block):
-    a = _as_oxml(anchor)
-    n = _as_oxml(new_block)
-    a.addprevious(n)
+# def _insert_before(anchor, new_block):
+#     a = _as_oxml(anchor)
+#     n = _as_oxml(new_block)
+#     a.addprevious(n)
 
 def _apply_grid_borders(tbl: Table):
     """Ensure visible borders regardless of style availability."""
@@ -276,13 +276,13 @@ def _rewrite_para_text(p, new_text: str):
 def _get_para_text(p) -> str:
     return "".join(r.text for r in p.runs)
 
-def _smart_case(repl: str, original: str) -> str:
-    """Preserve capitalization style of the matched token."""
-    if original.isupper():
-        return repl.upper()
-    if original[:1].isupper():
-        return repl[:1].upper() + repl[1:]
-    return repl
+# def _smart_case(repl: str, original: str) -> str:
+#     """Preserve capitalization style of the matched token."""
+#     if original.isupper():
+#         return repl.upper()
+#     if original[:1].isupper():
+#         return repl[:1].upper() + repl[1:]
+#     return repl
 
 # def _pluralize_string(s: str, singular: bool) -> str:
 #     """
@@ -343,34 +343,34 @@ def _pluralize_string(s: str, singular: bool) -> str:
     return out
 
 
-def _pluralize_text_everywhere(doc, total_findings: int):
-    singular = (total_findings == 1)
+# def _pluralize_text_everywhere(doc, total_findings: int):
+#     singular = (total_findings == 1)
 
-    # Body paragraphs
-    for p in list(doc.paragraphs):
-        txt = _get_para_text(p)
-        new = _pluralize_string(txt, singular)
-        if new != txt:
-            _rewrite_para_text(p, new)
+#     # Body paragraphs
+#     for p in list(doc.paragraphs):
+#         txt = _get_para_text(p)
+#         new = _pluralize_string(txt, singular)
+#         if new != txt:
+#             _rewrite_para_text(p, new)
 
-    # Tables
-    for tbl in doc.tables:
-        for row in tbl.rows:
-            for cell in row.cells:
-                for p in list(cell.paragraphs):
-                    txt = _get_para_text(p)
-                    new = _pluralize_string(txt, singular)
-                    if new != txt:
-                        _rewrite_para_text(p, new)
+#     # Tables
+#     for tbl in doc.tables:
+#         for row in tbl.rows:
+#             for cell in row.cells:
+#                 for p in list(cell.paragraphs):
+#                     txt = _get_para_text(p)
+#                     new = _pluralize_string(txt, singular)
+#                     if new != txt:
+#                         _rewrite_para_text(p, new)
 
-    # Headers/Footers (in case tokens show there)
-    for sec in doc.sections:
-        for container in (sec.header, sec.footer):
-            for p in list(container.paragraphs):
-                txt = _get_para_text(p)
-                new = _pluralize_string(txt, singular)
-                if new != txt:
-                    _rewrite_para_text(p, new)
+#     # Headers/Footers (in case tokens show there)
+#     for sec in doc.sections:
+#         for container in (sec.header, sec.footer):
+#             for p in list(container.paragraphs):
+#                 txt = _get_para_text(p)
+#                 new = _pluralize_string(txt, singular)
+#                 if new != txt:
+#                     _rewrite_para_text(p, new)
 
 
 def _rewrite_para_text(p, new_text: str):
@@ -705,85 +705,85 @@ def save_local_and_url(blob_name: str, data: bytes) -> str:
         f.write(data)
     return f"{PUBLIC_BASE_URL}/local/{blob_name}"
 
-def bucketize_via_llm(summary: str, compliance_type: str, allowed_labels: List[str]) -> Optional[str]:
-    try:
-        import openai, os
-        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-        system = "You are an audit analyst. Choose one label from the list; respond with ONLY the label."
-        user = f"""Compliance Type: {compliance_type}
-Finding summary: {summary}
-Allowed labels: {allowed_labels!r}
-Return exactly one label from Allowed labels."""
-        resp = client.chat.completions.create(
-            model=os.environ.get("OPENAI_MODEL","gpt-4o-mini"),
-            messages=[{"role":"system","content":system},{"role":"user","content":user}],
-            temperature=0,
-        )
-        label = (resp.choices[0].message.content or "").strip()
-        return label if label in allowed_labels else None
-    except Exception:
-        return None
+# def bucketize_via_llm(summary: str, compliance_type: str, allowed_labels: List[str]) -> Optional[str]:
+#     try:
+#         import openai, os
+#         client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+#         system = "You are an audit analyst. Choose one label from the list; respond with ONLY the label."
+#         user = f"""Compliance Type: {compliance_type}
+# Finding summary: {summary}
+# Allowed labels: {allowed_labels!r}
+# Return exactly one label from Allowed labels."""
+#         resp = client.chat.completions.create(
+#             model=os.environ.get("OPENAI_MODEL","gpt-4o-mini"),
+#             messages=[{"role":"system","content":system},{"role":"user","content":user}],
+#             temperature=0,
+#         )
+#         label = (resp.choices[0].message.content or "").strip()
+#         return label if label in allowed_labels else None
+#     except Exception:
+#         return None
         
 
-def load_aln_mapping(xlsx_path: Optional[str]) -> Tuple[Dict[str,str], Dict[str,str]]:
-    """
-    Returns:
-      aln_to_label: {'21.027': 'Coronavirus State and Local Fiscal Recovery Funds (SLFRF)', ...}
-      name_to_aln:  {'coronavirus state and local fiscal recovery funds': '21.027', ...}  (lowercased keys)
-    Automatically finds the first sheet that has columns like ALN/Assistance Listing, Program, Acronym.
-    """
-    aln_to_label, name_to_aln = {}, {}
-    if not xlsx_path or not os.path.exists(xlsx_path):
-        return aln_to_label, name_to_aln
+# def load_aln_mapping(xlsx_path: Optional[str]) -> Tuple[Dict[str,str], Dict[str,str]]:
+#     """
+#     Returns:
+#       aln_to_label: {'21.027': 'Coronavirus State and Local Fiscal Recovery Funds (SLFRF)', ...}
+#       name_to_aln:  {'coronavirus state and local fiscal recovery funds': '21.027', ...}  (lowercased keys)
+#     Automatically finds the first sheet that has columns like ALN/Assistance Listing, Program, Acronym.
+#     """
+#     aln_to_label, name_to_aln = {}, {}
+#     if not xlsx_path or not os.path.exists(xlsx_path):
+#         return aln_to_label, name_to_aln
 
-    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
-    ws_candidates = wb.sheetnames
+#     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+#     ws_candidates = wb.sheetnames
 
-    def headers(ws):
-        return [c.value.strip() if isinstance(c.value, str) else c.value for c in ws[1]]
+#     def headers(ws):
+#         return [c.value.strip() if isinstance(c.value, str) else c.value for c in ws[1]]
 
-    wanted = {"ALN","Assistance Listing","Assistance Listing Number"}
-    prog = {"Program","Program Name"}
-    acr  = {"Acronym","Short","Abbrev"}
+#     wanted = {"ALN","Assistance Listing","Assistance Listing Number"}
+#     prog = {"Program","Program Name"}
+#     acr  = {"Acronym","Short","Abbrev"}
 
-    target_ws = None
-    target_cols = {}
-    for name in ws_candidates:
-        ws = wb[name]
-        hdrs = headers(ws)
-        if not hdrs: 
-            continue
-        # map header names
-        hmap = {str(h).strip(): i for i,h in enumerate(hdrs) if h}
-        def colindex(options): 
-            for k in options:
-                if k in hmap: return hmap[k]
-            return None
-        i_aln = colindex(wanted)
-        i_prog= colindex(prog)
-        i_acr = colindex(acr)
-        if i_prog is not None and (i_aln is not None or i_acr is not None):
-            target_ws, target_cols = ws, {"aln": i_aln, "prog": i_prog, "acr": i_acr}
-            break
-    if not target_ws:
-        return aln_to_label, name_to_aln
+#     target_ws = None
+#     target_cols = {}
+#     for name in ws_candidates:
+#         ws = wb[name]
+#         hdrs = headers(ws)
+#         if not hdrs: 
+#             continue
+#         # map header names
+#         hmap = {str(h).strip(): i for i,h in enumerate(hdrs) if h}
+#         def colindex(options): 
+#             for k in options:
+#                 if k in hmap: return hmap[k]
+#             return None
+#         i_aln = colindex(wanted)
+#         i_prog= colindex(prog)
+#         i_acr = colindex(acr)
+#         if i_prog is not None and (i_aln is not None or i_acr is not None):
+#             target_ws, target_cols = ws, {"aln": i_aln, "prog": i_prog, "acr": i_acr}
+#             break
+#     if not target_ws:
+#         return aln_to_label, name_to_aln
 
-    for row in target_ws.iter_rows(min_row=2, values_only=True):
-        raw_aln = row[target_cols["aln"]] if target_cols["aln"] is not None else None
-        raw_prog= row[target_cols["prog"]]
-        raw_acr = row[target_cols["acr"]] if target_cols["acr"] is not None else None
-        aln = (str(raw_aln).strip() if raw_aln else "") or None
-        prog_name = (raw_prog or "").strip()
-        acr = (raw_acr or "").strip()
-        if not prog_name:
-            continue
-        canonical = _title_with_acronyms(prog_name, keep_all_caps=True)
-        if acr:
-            canonical = f"{canonical} ({acr})"
-        if aln:
-            aln_to_label[aln] = canonical
-        name_to_aln[prog_name.lower()] = aln or ""
-    return aln_to_label, name_to_aln
+#     for row in target_ws.iter_rows(min_row=2, values_only=True):
+#         raw_aln = row[target_cols["aln"]] if target_cols["aln"] is not None else None
+#         raw_prog= row[target_cols["prog"]]
+#         raw_acr = row[target_cols["acr"]] if target_cols["acr"] is not None else None
+#         aln = (str(raw_aln).strip() if raw_aln else "") or None
+#         prog_name = (raw_prog or "").strip()
+#         acr = (raw_acr or "").strip()
+#         if not prog_name:
+#             continue
+#         canonical = _title_with_acronyms(prog_name, keep_all_caps=True)
+#         if acr:
+#             canonical = f"{canonical} ({acr})"
+#         if aln:
+#             aln_to_label[aln] = canonical
+#         name_to_aln[prog_name.lower()] = aln or ""
+#     return aln_to_label, name_to_aln
 
 def _title_with_acronyms(s: str, keep_all_caps=True) -> str:
     # simple title-caser with stop-words; preserves ALL-CAPS tokens and acronyms in ( )
@@ -1667,18 +1667,18 @@ def _insert_program_tables_at_anchor(doc: Document, anchor_para: Paragraph, prog
         _insert_after(last, spacer_el)
         last = spacer_el
 
-def _remove_watermark(doc: Document, text_to_remove: str = "DRAFT"):
-    """Remove any paragraphs (body + header/footer) that contain the watermark text."""
-    def _kill_paragraphs(container):
-        if not hasattr(container, "paragraphs"):
-            return
-        for p in list(container.paragraphs):
-            if text_to_remove in _para_text(p):
-                p._element.getparent().remove(p._element)
-    _kill_paragraphs(doc)
-    for sec in doc.sections:
-        _kill_paragraphs(sec.header)
-        _kill_paragraphs(sec.footer)
+# def _remove_watermark(doc: Document, text_to_remove: str = "DRAFT"):
+#     """Remove any paragraphs (body + header/footer) that contain the watermark text."""
+#     def _kill_paragraphs(container):
+#         if not hasattr(container, "paragraphs"):
+#             return
+#         for p in list(container.paragraphs):
+#             if text_to_remove in _para_text(p):
+#                 p._element.getparent().remove(p._element)
+#     _kill_paragraphs(doc)
+#     for sec in doc.sections:
+#         _kill_paragraphs(sec.header)
+#         _kill_paragraphs(sec.footer)
 
 def _remove_watermarks(doc):
     """
@@ -1706,18 +1706,18 @@ def _remove_watermarks(doc):
                 parent = pict.getparent()
                 parent.remove(pict)
 
-def _apply_grammar(doc: Document, total_findings: int):
-    """Replace common bracketed choices and (s) forms based on finding count."""
-    singular = (total_findings == 1)
-    repl = {
-        "[is/are]": "is" if singular else "are",
-        "[Is/Are]": "Is" if singular else "Are",
-        "finding(s)": "finding" if singular else "findings",
-        "Finding(s)": "Finding" if singular else "Findings",
-        "CAP(s)": "CAP" if singular else "CAPs",
-        "cap(s)": "cap" if singular else "caps",
-    }
-    _replace_placeholders_docwide(doc, repl)
+# def _apply_grammar(doc: Document, total_findings: int):
+#     """Replace common bracketed choices and (s) forms based on finding count."""
+#     singular = (total_findings == 1)
+#     repl = {
+#         "[is/are]": "is" if singular else "are",
+#         "[Is/Are]": "Is" if singular else "Are",
+#         "finding(s)": "finding" if singular else "findings",
+#         "Finding(s)": "Finding" if singular else "Findings",
+#         "CAP(s)": "CAP" if singular else "CAPs",
+#         "cap(s)": "cap" if singular else "caps",
+#     }
+#     _replace_placeholders_docwide(doc, repl)
 
 def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> bytes:
     """
