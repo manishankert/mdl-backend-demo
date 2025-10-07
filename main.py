@@ -1613,7 +1613,8 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
 
     # 1) Replace placeholders everywhere (body + headers/footers + nested tables)
     _replace_placeholders_docwide(doc, mapping)
-    _fix_treasury_email(doc, model.get("treasury_contact_email") or "StateandLocalRecovery@treasury.gov")
+    _fix_treasury_email(doc, model.get("treasury_contact_email") or "ORP_SingleAudits@treasury.gov")
+    _strip_leading_token_artifacts(doc)
     _unset_all_caps_everywhere(doc)
 
     # 2) Insert program tables at the anchor (do this BEFORE stripping bracketed tokens,
@@ -2215,7 +2216,15 @@ def _fix_treasury_email(doc, email: str):
         if email not in t:
             new_t = re.sub(r"(?i)(please email us at)(\s*)", rf"\1 {email}. ", t, count=1)
             _rewrite_paragraph(target, new_t)
-
+def _strip_leading_token_artifacts(doc):
+    pat = re.compile(r"^\s*\$\{[^}]+\}\.?\s*")
+    for p in _iter_all_paragraphs(doc):
+        t = _para_text(p)
+        if not t:
+            continue
+        new = pat.sub("", t)
+        if new != t:
+            _clear_runs(p); p.add_run(new)
 
 @app.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildAuto):
