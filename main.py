@@ -1613,6 +1613,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
 
     # 1) Replace placeholders everywhere (body + headers/footers + nested tables)
     _replace_placeholders_docwide(doc, mapping)
+    _fix_treasury_email(doc, model.get("treasury_contact_email") or "StateandLocalRecovery@treasury.gov")
     _unset_all_caps_everywhere(doc)
 
     # 2) Insert program tables at the anchor (do this BEFORE stripping bracketed tokens,
@@ -2170,6 +2171,51 @@ def _unset_all_caps_everywhere(doc):
                 for r in p.runs:
                     r.font.all_caps = False
                     r.font.small_caps = False
+
+def _rewrite_paragraph(p, text):
+    _clear_runs(p); p.add_run(text)
+
+def _iter_all_paragraphs(doc):
+    for p in doc.paragraphs:
+        yield p
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    yield p
+    for sec in doc.sections:
+        for container in (sec.header, sec.footer):
+            for p in container.paragraphs:
+                yield p
+
+def _fix_treasury_email(doc, email: str):
+    if not email:
+        return
+    email = email.strip()
+
+    found_token = False
+    # 1) Replace tokens anywhere (body, tables, hdr/ftr)
+    for p in _iter_all_paragraphs(doc):
+        t = _para_text(p)
+        if "${treasury_contact_email}" in t:
+            found_token = True
+            new_t = t.replace("${treasury_contact_email}", email)
+            # tidy double spaces and missing space before next sentence
+            new_t = new_t.replace(f"{email}.The", f"{email}. The")
+            new_t = re.sub(r"\s{2,}", " ", new_t)
+            _rewrite_paragraph(p, new_t)
+
+    if found_token:
+        return
+
+    # 2) No token in template → inject into the “For questions…” line only
+    target = _find_para_by_contains(doc, "For questions regarding the audit finding")
+    if target:
+        t = _para_text(target)
+        if email not in t:
+            new_t = re.sub(r"(?i)(please email us at)(\s*)", rf"\1 {email}. ", t, count=1)
+            _rewrite_paragraph(target, new_t)
+
 
 @app.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildAuto):
