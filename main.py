@@ -1636,6 +1636,14 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         "${auditor_name}": auditor,
         "${fy_end_text}": fy_end,
     }
+    email = (model.get("treasury_contact_email") or "ORP_SingleAudits@treasury.gov").strip()
+
+    mapping.update({
+        # bracket style used by template
+        "[treasury_contact_email]": email,
+        # curly style just in case
+        "${treasury_contact_email}": email,
+    })
     # Ensure no None values sneak in
     mapping = {k: (v if v is not None else "") for k, v in mapping.items()}
 
