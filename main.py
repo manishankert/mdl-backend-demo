@@ -1572,6 +1572,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     if auditor and not auditor.lower().startswith("the "):
         auditor = "the " + auditor
     print(f"Auditor: {auditor}")
+    print(f"Auditee: {auditee}")
     fy_end  = (model.get("period_end_text")
                or str(model.get("audit_year", ""))) or ""
     # Treasury contact email
