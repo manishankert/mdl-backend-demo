@@ -1636,6 +1636,9 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         "${auditor_name}": auditor,
         "${fy_end_text}": fy_end,
     }
+
+    # Ensure no None values sneak in
+    mapping = {k: (v if v is not None else "") for k, v in mapping.items()}
     email = (model.get("treasury_contact_email") or "ORP_SingleAudits@treasury.gov").strip()
 
     mapping.update({
@@ -1644,12 +1647,10 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         # curly style just in case
         "${treasury_contact_email}": email,
     })
-    # Ensure no None values sneak in
-    mapping = {k: (v if v is not None else "") for k, v in mapping.items()}
-
     # 1) Replace placeholders everywhere (body + headers/footers + nested tables)
     _replace_placeholders_docwide(doc, mapping)
-    _fix_treasury_email(doc, model.get("treasury_contact_email") or "ORP_SingleAudits@treasury.gov")
+    _email_postfix_cleanup(doc, email)
+    #_fix_treasury_email(doc, model.get("treasury_contact_email") or "ORP_SingleAudits@treasury.gov")
     _strip_leading_token_artifacts(doc)
     _unset_all_caps_everywhere(doc)
 
@@ -2212,18 +2213,32 @@ def _unset_all_caps_everywhere(doc):
 def _rewrite_paragraph(p, text):
     _clear_runs(p); p.add_run(text)
 
-def _iter_all_paragraphs(doc):
-    for p in doc.paragraphs:
-        yield p
+def _iter_all_paragraphs_full(doc):
+    # body
+    for p in doc.paragraphs: yield p
+    # tables
     for tbl in doc.tables:
         for row in tbl.rows:
             for cell in row.cells:
                 for p in cell.paragraphs:
                     yield p
+    # header/footer
     for sec in doc.sections:
         for container in (sec.header, sec.footer):
             for p in container.paragraphs:
                 yield p
+
+def _email_postfix_cleanup(doc, email):
+    # strip leading bracket/curly tokens at paragraph start; fix ".The" joins
+    pat_leading = re.compile(r"^\s*(\[\s*treasury_contact_email\s*\]|\$\{treasury_contact_email\})\.?\s*")
+    for p in _iter_all_paragraphs_full(doc):
+        t = _para_text(p)
+        if not t: continue
+        new = pat_leading.sub("", t)
+        if email and f"{email}.The" in new:
+            new = new.replace(f"{email}.The", f"{email}. The")
+        if new != t:
+            _rewrite_paragraph(p, new)
 
 def _fix_treasury_email(doc, email: str):
     if not email:
