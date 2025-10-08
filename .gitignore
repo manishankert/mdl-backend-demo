@@ -1,1 +1,26 @@
 .env
+# Byte-compiled / optimized / compiled files
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+
+# Virtual environment
+env/
+venv/
+.venv/
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.swp
+*.bak
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# Data files (if not meant for version control)
+*.sqlite3
+*.db
