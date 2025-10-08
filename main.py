@@ -29,6 +29,15 @@ import os, json, requests
 import logging
 logging.basicConfig(level=logging.INFO)
 
+
+from mdl_helpers import (
+    finding_summaries_list,
+    finding_types,
+    aln_program_acronym,
+    _combine_comp_summary,   # updated function
+    map_compliance_type,
+    classify_top_category,   # OpenAI call (user sets OPENAI_API_KEY)
+)
 # Azure
 from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas
 
@@ -97,7 +106,7 @@ def _as_oxml(el):
     if hasattr(el, "_tbl"): # Table
         return el._tbl
     if hasattr(el, "_element"):
-        return el._element
+        return el._element/Users/mani/Downloads/mdl_helpers.py
     return el  # assume already oxml
 
 def _insert_after(anchor, new_block):
@@ -848,7 +857,7 @@ def render_mdl_html(model: Dict[str, Any]) -> str:
             rows_html.append(f"""
               <tr>
                 <td>{html.escape(f.get('finding_id',''))}</td>
-                <td>{html.escape(f.get('compliance_and_summary') or f"{f.get('compliance_type','')} - {f.get('summary','')}".strip(" -"))}</td>                <td>{html.escape(f.get('summary',''))}</td>
+                <td>{html.escape(_combine_comp_summary(f))}</td>
                 <td>{html.escape(f.get('audit_determination',''))}</td>
                 <td>{html.escape(f.get('questioned_cost_determination',''))}</td>
                 <td>{html.escape(f.get('cap_determination',''))}</td>
