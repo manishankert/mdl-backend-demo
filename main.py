@@ -1417,7 +1417,7 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
     findings = program.get("findings", []) or []
     rows = max(1, len(findings)) + 1
 
-    tbl = doc.add_table(rows=rows, cols=6)
+    tbl = doc.add_table(rows=rows, cols=5)
     _style = _pick_table_style(doc)
     if _style:
         try:
@@ -1444,10 +1444,17 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 
     if findings:
         for r, f in enumerate(findings, start=1):
+            # vals = [
+            #     f.get("finding_id", ""),
+            #     f.get("compliance_type", ""),
+            #     f.get("summary", ""),
+            #     f.get("audit_determination", "Sustained"),
+            #     f.get("questioned_cost_determination", "None"),
+            #     f.get("cap_determination", "Not Applicable"),
+            # ]
             vals = [
                 f.get("finding_id", ""),
-                f.get("compliance_type", ""),
-                f.get("summary", ""),
+                f.get("compliance_and_summary", ""),  # ← Use the combined field
                 f.get("audit_determination", "Sustained"),
                 f.get("questioned_cost_determination", "None"),
                 f.get("cap_determination", "Not Applicable"),
