@@ -1249,7 +1249,7 @@ def build_mdl_model_from_fac(
         print("\n")
         logging.info(f"Compliance type: {ctype_label}")
         logging.info(f"Summary: {summary}")
-        logging.info(" for finding {f.get('reference_number')}")
+        #logging.info(" for finding {f.get('reference_number')}")
         logging.info(ctype_label, summary, cap_text, qcost_det, cap_det)
         group["findings"].append({
             "finding_id": f.get("reference_number") or "",
