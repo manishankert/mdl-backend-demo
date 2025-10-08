@@ -1030,7 +1030,34 @@ def build_mdl_model_from_fac(
            - Else apply Treasury heuristics (SLFRF/ERA/HAF/CPF/SSBCI/LATCF).
         3) THEN apply treasury_listings filter.
     """
-
+        # Temporary hardcoded mapping for testing
+    type_map = {
+        "A": "Activities allowed or unallowed",
+        "B": "Allowable costs/cost principles",
+        "C": "Cash management",
+        "E": "Eligibility",
+        "F": "Equipment and real property management",
+        "G": "Matching, level of effort, earmarking",
+        "H": "Period of performance (or availability) of Federal funds",
+        "I": "Procurement and suspension and debarment",
+        "J": "Program income",
+        "L": "Reporting",
+        "M": "Subrecipient monitoring",
+        "N": "Special tests and provisions",
+        "P": "Other"
+    }
+    # Still try to load from file (will override if successful)
+    if aln_reference_xlsx:
+        loaded_type_map, summary_labels = _load_finding_mappings(aln_reference_xlsx)
+        if loaded_type_map:
+            type_map = loaded_type_map
+        logging.info(f"Loaded {len(summary_labels)} summary labels from Excel")
+    else:
+        summary_labels = finding_summaries_list  # Use the one from mdl_helpers.py
+        logging.warning("No aln_reference_xlsx provided, using hardcoded type_map")
+    
+    logging.info(f"Final type_map: {type_map}")
+    logging.info(f"Looking up 'I': {type_map.get('I')}")
     # --------- helpers ----------
     def _derive_assistance_listing(program_name: str, fallback: str = "Unknown") -> str:
         m = re.search(r"\b\d{2}\.\d{3}\b", program_name or "")
