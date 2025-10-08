@@ -1245,12 +1245,12 @@ def build_mdl_model_from_fac(
         matched_label = (_best_summary_label_openai(summary, summary_labels)
                  or _best_summary_label(summary, summary_labels)
                  or summary)
-        print(f"Matched label: {matched_label}")
+        logging.info(f"Matched label: {matched_label}")
         print("\n")
-        print(f"Compliance type: {ctype_label}")
-        print(f"Summary: {summary}")
-        print(" for finding {f.get('reference_number')}")
-        print(ctype_label, summary, cap_text, qcost_det, cap_det)
+        logging.info(f"Compliance type: {ctype_label}")
+        logging.info(f"Summary: {summary}")
+        logging.info(" for finding {f.get('reference_number')}")
+        logging.info(ctype_label, summary, cap_text, qcost_det, cap_det)
         group["findings"].append({
             "finding_id": f.get("reference_number") or "",
             "compliance_type": ctype_label,  # use the full label, not just 'I'
@@ -2296,11 +2296,16 @@ def build_mdl_docx_auto(req: BuildAuto):
             return {"ok": False, "message": f"No FAC report found for EIN {req.ein} in {req.audit_year}."}
 
         report_id = gen[0]["report_id"]
+        logging.info(f"Found report_id {report_id} for EIN {req.ein} in {req.audit_year}")
         try:
             aln_by_award, aln_by_finding = _aln_overrides_from_summary(report_id)
         except Exception:
             aln_by_award, aln_by_finding = {}, {}
-
+        logging.info(f"ALN overrides loaded: {len(aln_by_award)} awards, {len(aln_by_finding)} findings")
+        logging.info("aln_by_award")
+        logging.info(aln_by_award)
+        logging.info("aln_by_finding")
+        logging.info(aln_by_finding)
         # 2) (unchanged) fetch findings / texts / caps / awards ...
         #    ... your existing code here ...
 
@@ -2470,7 +2475,7 @@ async def log_requests(request: Request, call_next):
         raw = await request.body()
         try:
             logging.info("== /build-mdl-docx-auto RAW BODY ==")
-            logging.info(raw.decode("utf-8", errors="ignore"))
+            #logging.info(raw.decode("utf-8", errors="ignore"))
         except Exception:
             pass
         # re-create the request stream for downstream
