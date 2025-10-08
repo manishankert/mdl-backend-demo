@@ -524,23 +524,56 @@ def _blob_service_client():
         return BlobServiceClient(account_url=info["BlobEndpoint"], credential=info["AccountKey"])
     return BlobServiceClient.from_connection_string(AZURE_CONN_STR)
 
+# def _best_summary_label_openai(summary: str, labels: List[str]) -> Optional[str]:
+#     import os, json, requests
+#     api_key = os.getenv("OPENAI_API_KEY")
+#     if not api_key or not labels:
+#         return None
+#     prompt = {
+#         "summary": summary,
+#         "labels": labels,
+#         "task": "Pick exactly one label from 'labels' that best matches 'summary'. Respond with just the label text."
+#     }
+#     try:
+#         r = requests.post(
+#             "https://api.openai.com/v1/chat/completions",
+#             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+#             data=json.dumps({
+#                 "model": "gpt-4o-mini",
+#                 "messages": [{"role":"user","content": json.dumps(prompt)}],
+#                 "temperature": 0
+#             }),
+#             timeout=12,
+#         )
+#         out = r.json()
+#         txt = (out.get("choices",[{}])[0].get("message",{}).get("content") or "").strip()
+#         if txt in labels:
+#             return txt
+#     except Exception:
+#         pass
+#     return None
+
 def _best_summary_label_openai(summary: str, labels: List[str]) -> Optional[str]:
     import os, json, requests
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key or not labels:
         return None
-    prompt = {
-        "summary": summary,
-        "labels": labels,
-        "task": "Pick exactly one label from 'labels' that best matches 'summary'. Respond with just the label text."
-    }
+    
+    # Create a clear prompt for matching
+    prompt = (
+        f"Given the following audit finding text, select the SINGLE best matching category from the list below.\n\n"
+        f"Finding text:\n{summary}\n\n"
+        f"Categories:\n" + "\n".join(f"- {label}" for label in labels) + "\n\n"
+        f"Respond with ONLY the exact category text from the list above that best matches this finding."
+    )
+    
     try:
         r = requests.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             data=json.dumps({
                 "model": "gpt-4o-mini",
-                "messages": [{"role":"user","content": json.dumps(prompt)}],
+                "messages": [{"role":"user","content": prompt}],
                 "temperature": 0
             }),
             timeout=12,
@@ -1249,22 +1282,51 @@ def build_mdl_model_from_fac(
             else ("No CAP required" if include_no_cap_line else "Not Applicable")
         )
 
+        # ctype_code = (f.get("type_requirement") or "").strip().upper()[:1]
+        # ctype_label = type_map.get(ctype_code) or ctype_code or ""
+        # matched_label = (_best_summary_label_openai(summary, summary_labels)
+        #          or _best_summary_label(summary, summary_labels)
+        #          or summary)
+        # Get the full compliance type label (e.g., "Procurement and suspension and debarment")
         ctype_code = (f.get("type_requirement") or "").strip().upper()[:1]
         ctype_label = type_map.get(ctype_code) or ctype_code or ""
-        matched_label = (_best_summary_label_openai(summary, summary_labels)
-                 or _best_summary_label(summary, summary_labels)
-                 or summary)
+        
+        # Get the complete finding summary text
+        complete_summary = text_by_ref.get(k, "")
+        
+        # Match against standardized summaries - try OpenAI first with COMPLETE text
+        matched_label = None
+        if complete_summary:
+            matched_label = (_best_summary_label_openai(complete_summary, summary_labels)
+                           or _best_summary_label(complete_summary, summary_labels))
+        
+        # Fallback to shortened summary if no match
+        if not matched_label:
+            matched_label = summary
+        
+        logging.info(f"Finding {f.get('reference_number')}: {ctype_label} - {matched_label}")
         logging.info(f"Matched label: {matched_label}")
         #print("\n")
         logging.info(f"Compliance type: {ctype_label}")
         logging.info(f"Summary: {summary}")
         #logging.info(" for finding {f.get('reference_number')}")
         logging.info(f" {ctype_label}, {summary}, {cap_text}, {qcost_det}, {cap_det}")
+        # group["findings"].append({
+        #     "finding_id": f.get("reference_number") or "",
+        #     "compliance_type": ctype_label,  # use the full label, not just 'I'
+        #     "summary": summary,
+        #     "compliance_and_summary": f"{ctype_label} - {matched_label}".strip(" -"),
+        #     "audit_determination": "Sustained",
+        #     "questioned_cost_determination": qcost_det,
+        #     "disallowed_cost_determination": "None",
+        #     "cap_determination": cap_det,
+        #     "cap_text": cap_text,
+        # })
         group["findings"].append({
             "finding_id": f.get("reference_number") or "",
-            "compliance_type": ctype_label,  # use the full label, not just 'I'
-            "summary": summary,
-            "compliance_and_summary": f"{ctype_label} - {matched_label}".strip(" -"),
+            "compliance_type": ctype_label,  # Full label: "Procurement and suspension and debarment"
+            "summary": matched_label,  # Matched standardized summary
+            "compliance_and_summary": f"{ctype_label} - {matched_label}".strip(" -"),  # Combined for display
             "audit_determination": "Sustained",
             "questioned_cost_determination": qcost_det,
             "disallowed_cost_determination": "None",
@@ -1413,18 +1475,69 @@ def _pick_table_style(doc: Document) -> Optional[str]:
             continue
     return None
 
+# def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
+#     findings = program.get("findings", []) or []
+#     rows = max(1, len(findings)) + 1
+
+#     tbl = doc.add_table(rows=rows, cols=5)
+#     _style = _pick_table_style(doc)
+#     if _style:
+#         try:
+#             tbl.style = _style
+#         except Exception:
+#             pass
+#     _apply_grid_borders(tbl)  # ensure borders even without style
+
+#     headers = [
+#         "Audit\nFinding #",
+#         "Compliance Type -\nAudit Finding",
+#         "Audit Finding\nDetermination",
+#         "Questioned Cost\nDetermination",
+#         "CAP\nDetermination",
+#     ]
+#     for i, h in enumerate(headers):
+#         cell = tbl.cell(0, i)
+#         _clear_runs(cell.paragraphs[0])
+#         cell.paragraphs[0].add_run(h)
+#         _shade_cell(cell, "E7E6E6")
+#         cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+#         cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+#         _tight_paragraph(cell.paragraphs[0])
+
+#     if findings:
+#         for r, f in enumerate(findings, start=1):
+#             vals = [
+#                 f.get("finding_id", ""),
+#                 f.get("compliance_and_summary", ""),  # ← Use the combined field
+#                 f.get("audit_determination", "Sustained"),
+#                 f.get("questioned_cost_determination", "None"),
+#                 f.get("cap_determination", "Not Applicable"),
+#             ]
+#             for c, val in enumerate(vals):
+#                 cell = tbl.cell(r, c)
+#                 _clear_runs(cell.paragraphs[0])
+#                 cell.paragraphs[0].add_run(str(val))
+#                 cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+#                 _tight_paragraph(cell.paragraphs[0])
+#     else:
+#         cell = tbl.cell(1, 0)
+#         _clear_runs(cell.paragraphs[0])
+#         cell.paragraphs[0].add_run("—")
+
+#     return tbl
+
 def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
     findings = program.get("findings", []) or []
     rows = max(1, len(findings)) + 1
 
-    tbl = doc.add_table(rows=rows, cols=5)
+    tbl = doc.add_table(rows=rows, cols=5)  # Fixed to 5 columns
     _style = _pick_table_style(doc)
     if _style:
         try:
             tbl.style = _style
         except Exception:
             pass
-    _apply_grid_borders(tbl)  # ensure borders even without style
+    _apply_grid_borders(tbl)
 
     headers = [
         "Audit\nFinding #",
@@ -1444,17 +1557,9 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 
     if findings:
         for r, f in enumerate(findings, start=1):
-            # vals = [
-            #     f.get("finding_id", ""),
-            #     f.get("compliance_type", ""),
-            #     f.get("summary", ""),
-            #     f.get("audit_determination", "Sustained"),
-            #     f.get("questioned_cost_determination", "None"),
-            #     f.get("cap_determination", "Not Applicable"),
-            # ]
             vals = [
                 f.get("finding_id", ""),
-                f.get("compliance_and_summary", ""),  # ← Use the combined field
+                f.get("compliance_and_summary", ""),  # ← Use the combined field that has proper mapping
                 f.get("audit_determination", "Sustained"),
                 f.get("questioned_cost_determination", "None"),
                 f.get("cap_determination", "Not Applicable"),
