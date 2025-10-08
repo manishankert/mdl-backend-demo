@@ -1169,6 +1169,8 @@ def build_mdl_model_from_fac(
     aln_to_label, name_to_aln = _load_aln_mapping(aln_reference_xlsx)
     # ADD THIS:
     type_map, summary_labels = _load_finding_mappings(aln_reference_xlsx)
+    logging.info(f"Loaded type_map: {type_map}")
+    logging.info(f"Loaded {len(summary_labels)} summary labels")
     # --------- award lookups from FAC ----------
     award2meta: Dict[str, Dict[str, str]] = {}
     for a in (federal_awards or []):
@@ -2546,6 +2548,8 @@ def build_mdl_docx_auto(req: BuildAuto):
                     ar = (a.get("award_reference") or "").strip()
                     if ar and ar in aln_by_award:
                         a["assistance_listing"] = aln_by_award[ar]
+        template_path = _none_if_placeholder(req.template_path) or "templates/MDL_Template_Data_Mapping_Comments.docx"
+        aln_xlsx = _none_if_placeholder(req.aln_reference_xlsx) or "templates/Additional_Reference_Documentation_MDLs.xlsx"
         # ---------- NEW: build the model -------------
         mdl_model = build_mdl_model_from_fac(
             auditee_name=req.auditee_name,
@@ -2560,7 +2564,7 @@ def build_mdl_docx_auto(req: BuildAuto):
             max_refs=req.max_refs,
             include_no_qc_line=True,
             treasury_listings=req.treasury_listings,
-            aln_reference_xlsx=req.aln_reference_xlsx,
+            aln_reference_xlsx=aln_xlsx,
             aln_overrides_by_finding=aln_by_finding,
         )
 
