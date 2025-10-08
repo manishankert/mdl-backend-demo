@@ -1246,11 +1246,11 @@ def build_mdl_model_from_fac(
                  or _best_summary_label(summary, summary_labels)
                  or summary)
         logging.info(f"Matched label: {matched_label}")
-        print("\n")
+        #print("\n")
         logging.info(f"Compliance type: {ctype_label}")
         logging.info(f"Summary: {summary}")
         #logging.info(" for finding {f.get('reference_number')}")
-        logging.info(ctype_label, summary, cap_text, qcost_det, cap_det)
+        logging.info({ctype_label}, {summary}, {cap_text}, {qcost_det}, {cap_det})
         group["findings"].append({
             "finding_id": f.get("reference_number") or "",
             "compliance_type": ctype_label,  # use the full label, not just 'I'
