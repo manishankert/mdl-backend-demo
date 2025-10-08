@@ -1334,22 +1334,70 @@ def build_mdl_model_from_fac(
             "cap_text": cap_text,
         })
     # If nothing grouped but we have refs, emit a catch-all
+    # if not programs_map and norm_refs:
+    #     catchall = {"assistance_listing": "Unknown", "program_name": "Unknown Program", "findings": []}
+    #     ctype_code = (f.get("type_requirement") or "").strip().upper()[:1]
+    #     ctype_label = type_map.get(ctype_code) or ctype_code or ""
+    #     matched_label = _best_summary_label(summary, summary_labels) or summary
+    #     for orig, key in norm_refs:
+    #         cap_text = cap_by_ref.get(key)
+    #         qcost_det = "No questioned costs identified" if include_no_qc_line else "None"
+    #         cap_det   = (
+    #             "Accepted" if (auto_cap_determination and cap_text)
+    #             else ("No CAP required" if include_no_cap_line else "Not Applicable")
+    #         )
+    #         catchall["findings"].append({
+    #             "finding_id": orig,
+    #             "compliance_type": ctype_label, # use the full label not just 'I'
+    #             "summary": summarize_finding_text(text_by_ref.get(key, "")),
+    #             "compliance_and_summary": f"{ctype_label} - {matched_label}".strip(" -"),
+    #             "audit_determination": "Sustained",
+    #             "questioned_cost_determination": qcost_det,
+    #             "disallowed_cost_determination": "None",
+    #             "cap_determination": cap_det,
+    #             "cap_text": cap_text,
+    #         })
+    #     programs_map["UNKNOWN"] = catchall
+    # If nothing grouped but we have refs, emit a catch-all
     if not programs_map and norm_refs:
         catchall = {"assistance_listing": "Unknown", "program_name": "Unknown Program", "findings": []}
-        ctype_code = (f.get("type_requirement") or "").strip().upper()[:1]
-        ctype_label = type_map.get(ctype_code) or ctype_code or ""
-        matched_label = _best_summary_label(summary, summary_labels) or summary
+        
         for orig, key in norm_refs:
+            # Get compliance type for THIS finding
+            # Find the finding in fac_findings to get its type_requirement
+            finding_data = None
+            for f in (fac_findings or []):
+                if _norm_ref(f.get("reference_number")) == key:
+                    finding_data = f
+                    break
+            
+            if finding_data:
+                ctype_code = (finding_data.get("type_requirement") or "").strip().upper()[:1]
+            else:
+                ctype_code = ""
+            
+            ctype_label = type_map.get(ctype_code) or ctype_code or ""
+            
+            # Get complete finding text and match
+            complete_summary = text_by_ref.get(key, "")
+            matched_label = None
+            if complete_summary:
+                matched_label = (_best_summary_label_openai(complete_summary, summary_labels)
+                            or _best_summary_label(complete_summary, summary_labels))
+            if not matched_label:
+                matched_label = summarize_finding_text(complete_summary)
+            
             cap_text = cap_by_ref.get(key)
             qcost_det = "No questioned costs identified" if include_no_qc_line else "None"
             cap_det   = (
                 "Accepted" if (auto_cap_determination and cap_text)
                 else ("No CAP required" if include_no_cap_line else "Not Applicable")
             )
+            
             catchall["findings"].append({
                 "finding_id": orig,
-                "compliance_type": ctype_label, # use the full label not just 'I'
-                "summary": summarize_finding_text(text_by_ref.get(key, "")),
+                "compliance_type": ctype_label,  # Full label like "Procurement and suspension and debarment"
+                "summary": matched_label,  # Matched standardized summary
                 "compliance_and_summary": f"{ctype_label} - {matched_label}".strip(" -"),
                 "audit_determination": "Sustained",
                 "questioned_cost_determination": qcost_det,
