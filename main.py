@@ -2673,19 +2673,36 @@ def build_mdl_docx_auto(req: BuildAuto):
         #     clean = name.strip()
         #     return clean if clean.lower().startswith("the ") else f"the {clean}"
 
+        # def _normalize_auditor_name(name: str) -> str:
+        #     if not name:
+        #         return ""
+        #     clean = name.strip()
+            
+        #     # Apply title casing if the name is all caps
+        #     if clean.isupper():
+        #         # Use the existing _title_case or _title_with_acronyms function
+        #         clean = _title_with_acronyms(clean, keep_all_caps=False)
+            
+        #     # Add "the" if not present
+        #     return clean if clean.lower().startswith("the ") else f"the {clean}"
+
         def _normalize_auditor_name(name: str) -> str:
+            """Add 'the' article but preserve original casing from API."""
             if not name:
                 return ""
             clean = name.strip()
-            
-            # Apply title casing if the name is all caps
-            if clean.isupper():
-                # Use the existing _title_case or _title_with_acronyms function
-                clean = _title_with_acronyms(clean)
-            
-            # Add "the" if not present
+            # Just add "the" - don't modify casing at all
             return clean if clean.lower().startswith("the ") else f"the {clean}"
-        recipient = _title_with_article(req.recipient_name or req.auditee_name)
+
+        # Don't use _title_with_article, just add "The" prefix
+        def _add_article_the(name: str) -> str:
+            """Add 'The' article but preserve original casing from API."""
+            if not name:
+                return ""
+            clean = name.strip()
+            return clean if clean.lower().startswith("the ") else f"The {clean}"
+        #recipient = _title_with_article(req.recipient_name or req.auditee_name)
+        recipient = _add_article_the(req.recipient_name or req.auditee_name)
 
         header_overrides = {
             # recipient & period end
