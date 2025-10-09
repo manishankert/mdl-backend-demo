@@ -847,6 +847,8 @@ def html_to_docx_bytes(html_str: str, *, force_basic: bool = False) -> bytes:
 
     if len(doc.paragraphs) == 0 and len(doc.tables) == 0:
         doc.add_paragraph("⚠️ HTML result is empty.")
+    # ADD THIS:
+    _set_font_size_to_12(doc)
     bio = BytesIO(); doc.save(bio)
     return bio.getvalue()
 
@@ -1313,7 +1315,9 @@ def build_mdl_model_from_fac(
             continue
 
         award_ref = f.get("award_reference") or "UNKNOWN"
+        logging.info(f" FFFinding {r} -> award_ref: {award_ref}")
         meta = award2meta.get(award_ref, {})
+        logging.info(f" award2meta lookup: {meta}")
         group = programs_map.setdefault(award_ref, {
             "assistance_listing": meta.get("assistance_listing", "Unknown"),
             "program_name": meta.get("program_name", "Unknown Program"),
@@ -1337,7 +1341,8 @@ def build_mdl_model_from_fac(
         summary  = summarize_finding_text(text_by_ref.get(k, ""))
         cap_text = cap_by_ref.get(k)
 
-        qcost_det = "No questioned costs identified" if include_no_qc_line else "None"
+        #qcost_det = "No questioned costs identified" if include_no_qc_line else "None"
+        qcost_det = "Questioned Cost:\n\nNone\n\nDisallowed Cost:\n\nNone" if include_no_qc_line else "None"
         cap_det   = (
             "Accepted" if (auto_cap_determination and cap_text)
             else ("No CAP required" if include_no_cap_line else "Not Applicable")
@@ -1475,8 +1480,10 @@ def build_mdl_model_from_fac(
     # ----- Apply Treasury ALN filter AFTER canonicalization
     if treasury_listings:
         allowed = {(aln or "").strip() for aln in treasury_listings if aln}
+        logging.info(f" Treasury listings filter: {allowed}")
+        logging.info(f"  Programs before filter: {list(programs_map.keys())}")
         programs_map = {k: v for k, v in programs_map.items() if v.get("assistance_listing") in allowed}
-
+        logging.info(f" Programs after filter: {list(programs_map.keys())}")
     # ----- Build final model
     model = {
         "letter_date_iso": datetime.utcnow().strftime("%Y-%m-%d"),
@@ -2569,6 +2576,25 @@ def _fix_narrative_article(doc, auditee_exact: str, auditor_exact: str):
     if new_text != text:
         _rewrite_paragraph(target, new_text)
 
+def _set_font_size_to_12(doc):
+    """Set all text in document to 12pt font."""
+    for p in doc.paragraphs:
+        for run in p.runs:
+            run.font.size = Pt(12)
+    
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    for run in p.runs:
+                        run.font.size = Pt(12)
+    
+    for section in doc.sections:
+        for container in (section.header, section.footer):
+            for p in container.paragraphs:
+                for run in p.runs:
+                    run.font.size = Pt(12)
+
 @app.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildAuto):
     try:
@@ -2722,9 +2748,15 @@ def build_mdl_docx_auto(req: BuildAuto):
                 return ""
             clean = name.strip()
             return clean if clean.lower().startswith("the ") else f"The {clean}"
-        #recipient = _title_with_article(req.recipient_name or req.auditee_name)
-        recipient = _add_article_the(req.recipient_name or req.auditee_name)
 
+        # Get RAW names from FAC (exactly as stored in database)
+        raw_auditee = gen[0].get("auditee_name") or req.auditee_name
+        raw_auditor = fac_defaults.get("auditor_name") or ""
+        #recipient = _title_with_article(req.recipient_name or req.auditee_name)
+        #recipient = _add_article_the(req.recipient_name or req.auditee_name)
+        # Now add articles while preserving casing
+        recipient = _add_article_the(raw_auditee)
+        auditor = _normalize_auditor_name(raw_auditor)
         header_overrides = {
             # recipient & period end
             "recipient_name": recipient,
@@ -2737,7 +2769,8 @@ def build_mdl_docx_auto(req: BuildAuto):
             "zip_code": req.zip_code or fac_defaults.get("zip_code") or "",
 
             # auditor
-            "auditor_name": _normalize_auditor_name(req.auditor_name or fac_defaults.get("auditor_name") or ""),
+            #"auditor_name": _normalize_auditor_name(req.auditor_name or fac_defaults.get("auditor_name") or ""),
+            "auditor_name": auditor,  # use normalized name with "the" article
             "auditee_name": recipient,
             # POC (title case name + title)
             "poc_name": _title_case(req.poc_name or fac_defaults.get("poc_name")),
