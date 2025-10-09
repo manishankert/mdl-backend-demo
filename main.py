@@ -1258,7 +1258,10 @@ def build_mdl_model_from_fac(
                 "program_name": canonical_name or "Unknown Program",
                 "assistance_listing": aln or "Unknown",
             }
-
+    # ADD THIS DEBUG:
+    logging.info(f"📋 Built award2meta with {len(award2meta)} entries:")
+    for k, v in award2meta.items():
+        logging.info(f" AWARDSSSSSSSSSSS {k}: {v}")
     # --------- text / CAP lookups ----------
     text_by_ref = {
         _norm_ref(t.get("finding_ref_number")): (t.get("finding_text") or "").strip()
@@ -1891,7 +1894,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     #_fix_treasury_email(doc, model.get("treasury_contact_email") or "ORP_SingleAudits@treasury.gov")
     _strip_leading_token_artifacts(doc)
     _unset_all_caps_everywhere(doc)
-    _fix_narrative_article(doc, auditee, auditor)
+    #_fix_narrative_article(doc, auditee, auditor)
 
     # 2) Insert program tables at the anchor (do this BEFORE stripping bracketed tokens,
     # because cleanup would otherwise delete the [[PROGRAM_TABLES]] marker)
