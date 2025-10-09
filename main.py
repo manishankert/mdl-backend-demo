@@ -2733,6 +2733,19 @@ def build_mdl_docx_auto(req: BuildAuto):
                 if not (a.get("assistance_listing") or "").strip() and ar in aln_by_award:
                     a["assistance_listing"] = aln_by_award[ar]
                     logging.info(f"🔧 Applied ALN override for {ar}: {aln_by_award[ar]}")
+        # ========== HARDCODED ALN FIX ==========
+        TREASURY_PROGRAMS = {
+            "21.027": "Coronavirus State and Local Fiscal Recovery Funds (SLFRF)",
+            "21.023": "Emergency Rental Assistance Program (ERA)",
+            "21.026": "Homeowner Assistance Fund (HAF)",
+        }
+
+        for a in federal_awards:
+            aln = (a.get("assistance_listing") or "").strip()
+            if aln in TREASURY_PROGRAMS:
+                a["federal_program_name"] = TREASURY_PROGRAMS[aln]
+                logging.info(f"✅ Set program name for {aln}")
+        # ========== END FIX ==========
         template_path = _none_if_placeholder(req.template_path) or "templates/MDL_Template_Data_Mapping_Comments.docx"
         aln_xlsx = _none_if_placeholder(req.aln_reference_xlsx) or "templates/Additional_Reference_Documentation_MDLs.xlsx"
         # ---------- NEW: build the model -------------
@@ -2801,7 +2814,7 @@ def build_mdl_docx_auto(req: BuildAuto):
         auditor = _normalize_auditor_name(raw_auditor.upper() if raw_auditor else "")
         header_overrides = {
             # recipient & period end
-            "recipient_name": recipient.replace("the", ""),
+            "recipient_name": recipient,
             "period_end_text": req.fy_end_text or fac_defaults.get("period_end_text") or mdl_model.get("period_end_text"),
 
             # address (title case street + city, uppercase state, keep zip as-is)
@@ -2812,7 +2825,7 @@ def build_mdl_docx_auto(req: BuildAuto):
 
             # auditor
             #"auditor_name": _normalize_auditor_name(req.auditor_name or fac_defaults.get("auditor_name") or ""),
-            "auditor_name": "THE " + auditor.upper(),  # use normalized name with "the" article
+            "auditor_name": auditor,  # use normalized name with "the" article
             "auditee_name": recipient,
             # POC (title case name + title)
             "poc_name": _title_case(req.poc_name or fac_defaults.get("poc_name")),
