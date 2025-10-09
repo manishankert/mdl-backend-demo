@@ -872,6 +872,21 @@ def format_letter_date(date_iso: Optional[str] = None) -> Tuple[str, str]:
     dt = datetime.fromisoformat(date_iso) if date_iso else datetime.utcnow()
     return dt.strftime("%Y-%m-%d"), dt.strftime("%B %d, %Y")
 
+def _allcaps(s: str) -> str:
+    return (s or "").strip().upper()
+
+def _with_The_allcaps(name: str) -> str:
+    # "The CITY OF ..." — ensure capital T + no double “The”
+    raw = (name or "").strip()
+    core = raw[4:].strip() if raw.lower().startswith("the ") else raw
+    return f"The {_allcaps(core)}"
+
+def _with_the_allcaps(name: str) -> str:
+    # "the REHMANN ROBSON LLC" — ensure lowercase “the” + ALL CAPS entity
+    raw = (name or "").strip()
+    core = raw[4:].strip() if raw.lower().startswith("the ") else raw
+    return f"the {_allcaps(core)}"
+
 def render_mdl_html(model: Dict[str, Any]) -> str:
     letter_date_iso = model.get("letter_date_iso")
     _, letter_date_long = format_letter_date(letter_date_iso)
@@ -943,7 +958,7 @@ def render_mdl_html(model: Dict[str, Any]) -> str:
     """)
     chunks.append(f"""
       <p style="margin:0 0 12pt 0;">
-        <strong>{html.escape(auditee_name)}</strong><br>
+        <strong>{html.escape(_allcaps(auditee_name))}</strong><br>
         EIN: {html.escape(ein)}<br>
         {address_block}
       </p>
@@ -964,11 +979,19 @@ def render_mdl_html(model: Dict[str, Any]) -> str:
         and questioned costs, if any.
       </p>
     """)
+    # chunks.append(f"""
+    #   <p>
+    #     Treasury has reviewed the single audit report for {html.escape(auditee_name)}.
+    #     Treasury has made the following determinations regarding the audit finding(s) and CAP(s) listed below.
+    #   </p>
+    # """)
     chunks.append(f"""
-      <p>
-        Treasury has reviewed the single audit report for {html.escape(auditee_name)}.
+    <p>
+        Treasury has reviewed the single audit report for {html.escape(_with_The_allcaps(auditee_name))},
+        prepared by {html.escape(_with_the_allcaps(model.get("auditor_name","")))} for the fiscal year ending on
+        {html.escape(period_end_text)}.
         Treasury has made the following determinations regarding the audit finding(s) and CAP(s) listed below.
-      </p>
+    </p>
     """)
     if include_no_qc_line:
         chunks.append("<p>No questioned costs are included in this single audit report.</p>")
