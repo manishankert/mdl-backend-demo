@@ -1830,6 +1830,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     #     auditor = "the " + auditor
     logging.info(f"Auditor: {auditor}")
     logging.info(f"Auditee: {auditee}")
+    logging.info(f"POC: {poc} ({poc_t})")
     fy_end  = (model.get("period_end_text")
                or str(model.get("audit_year", ""))) or ""
     # Treasury contact email
