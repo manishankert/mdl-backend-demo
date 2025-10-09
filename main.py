@@ -2667,12 +2667,24 @@ def build_mdl_docx_auto(req: BuildAuto):
         # ---------- NEW: enrich headers from FAC + defaults ----------
         fac_defaults = _from_fac_general(gen)
 
+        # def _normalize_auditor_name(name: str) -> str:
+        #     if not name:
+        #         return ""
+        #     clean = name.strip()
+        #     return clean if clean.lower().startswith("the ") else f"the {clean}"
+
         def _normalize_auditor_name(name: str) -> str:
             if not name:
                 return ""
             clean = name.strip()
+            
+            # Apply title casing if the name is all caps
+            if clean.isupper():
+                # Use the existing _title_case or _title_with_acronyms function
+                clean = _title_with_acronyms(clean)
+            
+            # Add "the" if not present
             return clean if clean.lower().startswith("the ") else f"the {clean}"
-
         recipient = _title_with_article(req.recipient_name or req.auditee_name)
 
         header_overrides = {
