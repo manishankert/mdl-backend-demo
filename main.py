@@ -1883,6 +1883,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     #_fix_treasury_email(doc, model.get("treasury_contact_email") or "ORP_SingleAudits@treasury.gov")
     _strip_leading_token_artifacts(doc)
     _unset_all_caps_everywhere(doc)
+    _fix_narrative_article(doc, auditee, auditor)
 
     # 2) Insert program tables at the anchor (do this BEFORE stripping bracketed tokens,
     # because cleanup would otherwise delete the [[PROGRAM_TABLES]] marker)
@@ -2510,6 +2511,42 @@ def _strip_leading_token_artifacts(doc):
         new = pat.sub("", t)
         if new != t:
             _clear_runs(p); p.add_run(new)
+def _fix_narrative_article(doc, auditee_with_article: str, auditor_with_article: str):
+    """Fix the narrative paragraph to include 'The' before recipient and auditor names."""
+    target = _find_para_by_contains(doc, "Treasury has reviewed the single audit report for")
+    if target:
+        t = _para_text(target)
+        # Replace patterns without "The" with proper article
+        # Pattern: "for City of Ann Arbor" -> "for The City of Ann Arbor"
+        # Pattern: "prepared by REHMANN" -> "prepared by the Rehmann"
+        
+        # Extract just the name without "The" for matching
+        auditee_no_article = auditee_with_article.replace("The ", "", 1).replace("the ", "", 1)
+        auditor_no_article = auditor_with_article.replace("the ", "", 1).replace("The ", "", 1)
+        
+        new_t = t
+        # Fix auditee (case-insensitive)
+        if auditee_no_article:
+            # Match "for [auditee]" and replace with "for The [auditee]"
+            new_t = re.sub(
+                rf"\bfor\s+{re.escape(auditee_no_article)}\b",
+                f"for {auditee_with_article}",
+                new_t,
+                flags=re.IGNORECASE
+            )
+        
+        # Fix auditor (case-insensitive)
+        if auditor_no_article:
+            # Match "prepared by [auditor]" and replace with "prepared by the [auditor]"
+            new_t = re.sub(
+                rf"\bprepared by\s+{re.escape(auditor_no_article)}\b",
+                f"prepared by {auditor_with_article}",
+                new_t,
+                flags=re.IGNORECASE
+            )
+        
+        if new_t != t:
+            _rewrite_paragraph(target, new_t)
 
 @app.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildAuto):
