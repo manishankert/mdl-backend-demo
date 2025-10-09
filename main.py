@@ -1828,8 +1828,8 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     auditor = model.get("auditor_name", "") or ""
     # if auditor and not auditor.lower().startswith("the "):
     #     auditor = "the " + auditor
-    print(f"Auditor: {auditor}")
-    print(f"Auditee: {auditee}")
+    logging.info(f"Auditor: {auditor}")
+    logging.info(f"Auditee: {auditee}")
     fy_end  = (model.get("period_end_text")
                or str(model.get("audit_year", ""))) or ""
     # Treasury contact email
@@ -2511,42 +2511,62 @@ def _strip_leading_token_artifacts(doc):
         new = pat.sub("", t)
         if new != t:
             _clear_runs(p); p.add_run(new)
-def _fix_narrative_article(doc, auditee_with_article: str, auditor_with_article: str):
-    """Fix the narrative paragraph to include 'The' before recipient and auditor names."""
+# def _fix_narrative_article(doc, auditee_with_article: str, auditor_with_article: str):
+#     """Fix the narrative paragraph to include 'The' before recipient and auditor names."""
+#     target = _find_para_by_contains(doc, "Treasury has reviewed the single audit report for")
+#     if target:
+#         t = _para_text(target)
+#         # Replace patterns without "The" with proper article
+#         # Pattern: "for City of Ann Arbor" -> "for The City of Ann Arbor"
+#         # Pattern: "prepared by REHMANN" -> "prepared by the Rehmann"
+        
+#         # Extract just the name without "The" for matching
+#         auditee_no_article = auditee_with_article.replace("The ", "", 1).replace("the ", "", 1)
+#         auditor_no_article = auditor_with_article.replace("the ", "", 1).replace("The ", "", 1)
+        
+#         new_t = t
+#         # Fix auditee (case-insensitive)
+#         if auditee_no_article:
+#             # Match "for [auditee]" and replace with "for The [auditee]"
+#             new_t = re.sub(
+#                 rf"\bfor\s+{re.escape(auditee_no_article)}\b",
+#                 f"for {auditee_with_article}",
+#                 new_t,
+#                 flags=re.IGNORECASE
+#             )
+        
+#         # Fix auditor (case-insensitive)
+#         if auditor_no_article:
+#             # Match "prepared by [auditor]" and replace with "prepared by the [auditor]"
+#             new_t = re.sub(
+#                 rf"\bprepared by\s+{re.escape(auditor_no_article)}\b",
+#                 f"prepared by {auditor_with_article}",
+#                 new_t,
+#                 flags=re.IGNORECASE
+#             )
+        
+#         if new_t != t:
+#             _rewrite_paragraph(target, new_t)
+
+def _fix_narrative_article(doc, auditee_exact: str, auditor_exact: str):
+    """Replace narrative text with exact names from model (including articles and casing)."""
     target = _find_para_by_contains(doc, "Treasury has reviewed the single audit report for")
-    if target:
-        t = _para_text(target)
-        # Replace patterns without "The" with proper article
-        # Pattern: "for City of Ann Arbor" -> "for The City of Ann Arbor"
-        # Pattern: "prepared by REHMANN" -> "prepared by the Rehmann"
-        
-        # Extract just the name without "The" for matching
-        auditee_no_article = auditee_with_article.replace("The ", "", 1).replace("the ", "", 1)
-        auditor_no_article = auditor_with_article.replace("the ", "", 1).replace("The ", "", 1)
-        
-        new_t = t
-        # Fix auditee (case-insensitive)
-        if auditee_no_article:
-            # Match "for [auditee]" and replace with "for The [auditee]"
-            new_t = re.sub(
-                rf"\bfor\s+{re.escape(auditee_no_article)}\b",
-                f"for {auditee_with_article}",
-                new_t,
-                flags=re.IGNORECASE
-            )
-        
-        # Fix auditor (case-insensitive)
-        if auditor_no_article:
-            # Match "prepared by [auditor]" and replace with "prepared by the [auditor]"
-            new_t = re.sub(
-                rf"\bprepared by\s+{re.escape(auditor_no_article)}\b",
-                f"prepared by {auditor_with_article}",
-                new_t,
-                flags=re.IGNORECASE
-            )
-        
-        if new_t != t:
-            _rewrite_paragraph(target, new_t)
+    if not target:
+        return
+    
+    text = _para_text(target)
+    
+    # Pattern: "for [NAME], prepared by [AUDITOR] for the fiscal"
+    import re
+    pattern = r'(for\s+)([^,]+)(,\s+prepared by\s+)(.+?)(\s+for the fiscal year)'
+    
+    def replacer(match):
+        return f"{match.group(1)}{auditee_exact}{match.group(3)}{auditor_exact}{match.group(5)}"
+    
+    new_text = re.sub(pattern, replacer, text, count=1)
+    
+    if new_text != text:
+        _rewrite_paragraph(target, new_text)
 
 @app.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildAuto):
