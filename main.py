@@ -2782,8 +2782,8 @@ def build_mdl_docx_auto(req: BuildAuto):
         #recipient = _title_with_article(req.recipient_name or req.auditee_name)
         #recipient = _add_article_the(req.recipient_name or req.auditee_name)
         # Now add articles while preserving casing
-        recipient = _add_article_the(raw_auditee)
-        auditor = _normalize_auditor_name(raw_auditor)
+        recipient = _add_article_the(raw_auditee.upper() if raw_auditee else "")
+        auditor = _normalize_auditor_name(raw_auditor.upper() if raw_auditor else "")
         header_overrides = {
             # recipient & period end
             "recipient_name": recipient,
