@@ -1966,6 +1966,21 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         _strip_leftovers_in_container(sec.footer)
     # ADD THIS LINE HERE:
     _set_font_size_to_12(doc)
+    # ========== FORCE FIX NARRATIVE PARAGRAPH ==========
+    correct_auditee = model.get("auditee_name") or model.get("recipient_name") or ""
+    correct_auditor = model.get("auditor_name") or ""
+    
+    for p in doc.paragraphs:
+        text = _para_text(p)
+        if "Treasury has reviewed the single audit report for" in text:
+            # Brute force replace the entire sentence
+            pattern = r'(Treasury has reviewed the single audit report for )([^,]+)(, prepared by )(.+?)( for the fiscal year)'
+            new_text = re.sub(pattern, f"\\1{correct_auditee}\\3{correct_auditor}\\5", text)
+            if new_text != text:
+                _clear_runs(p)
+                p.add_run(new_text)
+            break
+    # ========== END FIX ==========
     bio = BytesIO()
     doc.save(bio)
     return bio.getvalue()
