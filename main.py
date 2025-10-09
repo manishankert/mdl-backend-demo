@@ -1816,8 +1816,8 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     auditee = (model.get("auditee_name")
                or model.get("recipient_name")
                or "")
-    if not auditee.lower().startswith("the "):
-        auditee = "The " + auditee
+    # if not auditee.lower().startswith("the "):
+    #     auditee = "The " + auditee
     ein     = model.get("ein", "") or ""
     street  = model.get("street_address", "") or ""
     city    = model.get("city", "") or ""
@@ -1826,8 +1826,8 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     poc     = model.get("poc_name", "") or ""
     poc_t   = model.get("poc_title", "") or ""
     auditor = model.get("auditor_name", "") or ""
-    if auditor and not auditor.lower().startswith("the "):
-        auditor = "the " + auditor
+    # if auditor and not auditor.lower().startswith("the "):
+    #     auditor = "the " + auditor
     print(f"Auditor: {auditor}")
     print(f"Auditee: {auditee}")
     fy_end  = (model.get("period_end_text")
