@@ -2801,7 +2801,7 @@ def build_mdl_docx_auto(req: BuildAuto):
         auditor = _normalize_auditor_name(raw_auditor.upper() if raw_auditor else "")
         header_overrides = {
             # recipient & period end
-            "recipient_name": recipient,
+            "recipient_name": recipient.replace("the", ""),
             "period_end_text": req.fy_end_text or fac_defaults.get("period_end_text") or mdl_model.get("period_end_text"),
 
             # address (title case street + city, uppercase state, keep zip as-is)
@@ -2812,7 +2812,7 @@ def build_mdl_docx_auto(req: BuildAuto):
 
             # auditor
             #"auditor_name": _normalize_auditor_name(req.auditor_name or fac_defaults.get("auditor_name") or ""),
-            "auditor_name": auditor,  # use normalized name with "the" article
+            "auditor_name": "THE " + auditor.upper(),  # use normalized name with "the" article
             "auditee_name": recipient,
             # POC (title case name + title)
             "poc_name": _title_case(req.poc_name or fac_defaults.get("poc_name")),
