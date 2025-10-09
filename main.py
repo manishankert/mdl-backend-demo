@@ -1342,7 +1342,7 @@ def build_mdl_model_from_fac(
         cap_text = cap_by_ref.get(k)
 
         #qcost_det = "No questioned costs identified" if include_no_qc_line else "None"
-        qcost_det = "Questioned Cost:\n\nNone\n\nDisallowed Cost:\n\nNone" if include_no_qc_line else "None"
+        qcost_det = "Questioned Cost:\nNone\nDisallowed Cost:\nNone" if include_no_qc_line else "None"
         cap_det   = (
             "Accepted" if (auto_cap_determination and cap_text)
             else ("No CAP required" if include_no_cap_line else "Not Applicable")
@@ -1961,6 +1961,8 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     for sec in doc.sections:
         _strip_leftovers_in_container(sec.header)
         _strip_leftovers_in_container(sec.footer)
+    # ADD THIS LINE HERE:
+    _set_font_size_to_12(doc)
     bio = BytesIO()
     doc.save(bio)
     return bio.getvalue()
@@ -2674,6 +2676,25 @@ def build_mdl_docx_auto(req: BuildAuto):
             fac_findings_text, fac_caps = [], []
 
         # Awards (optional, still safe)
+        # federal_awards = []
+        # if req.include_awards:
+        #     try:
+        #         federal_awards = _fac_get("federal_awards", {
+        #             "report_id": f"eq.{report_id}",
+        #             "select": "award_reference,federal_program_name,assistance_listing",
+        #             "order": "award_reference.asc",
+        #             "limit": "200",
+        #         }) or []
+        #     except Exception:
+        #         federal_awards = []
+        # if federal_awards:
+        #     for a in federal_awards:
+        #         if not (a.get("assistance_listing") or "").strip():
+        #             ar = (a.get("award_reference") or "").strip()
+        #             if ar and ar in aln_by_award:
+        #                 a["assistance_listing"] = aln_by_award[ar]
+
+        # Awards (optional, still safe)
         federal_awards = []
         if req.include_awards:
             try:
@@ -2685,12 +2706,15 @@ def build_mdl_docx_auto(req: BuildAuto):
                 }) or []
             except Exception:
                 federal_awards = []
-        if federal_awards:
+
+        # APPLY ALN OVERRIDES BEFORE BUILDING MODEL
+        if federal_awards and aln_by_award:
             for a in federal_awards:
-                if not (a.get("assistance_listing") or "").strip():
-                    ar = (a.get("award_reference") or "").strip()
-                    if ar and ar in aln_by_award:
-                        a["assistance_listing"] = aln_by_award[ar]
+                ar = (a.get("award_reference") or "").strip()
+                # If no ALN, try to get from override
+                if not (a.get("assistance_listing") or "").strip() and ar in aln_by_award:
+                    a["assistance_listing"] = aln_by_award[ar]
+                    logging.info(f"🔧 Applied ALN override for {ar}: {aln_by_award[ar]}")
         template_path = _none_if_placeholder(req.template_path) or "templates/MDL_Template_Data_Mapping_Comments.docx"
         aln_xlsx = _none_if_placeholder(req.aln_reference_xlsx) or "templates/Additional_Reference_Documentation_MDLs.xlsx"
         # ---------- NEW: build the model -------------
