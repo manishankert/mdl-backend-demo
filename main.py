@@ -2700,7 +2700,7 @@ def build_mdl_docx_auto(req: BuildAuto):
 
             # auditor
             "auditor_name": _normalize_auditor_name(req.auditor_name or fac_defaults.get("auditor_name") or ""),
-
+            "auditee_name": recipient,
             # POC (title case name + title)
             "poc_name": _title_case(req.poc_name or fac_defaults.get("poc_name")),
             "poc_title": _title_case(req.poc_title or fac_defaults.get("poc_title")),
@@ -2710,7 +2710,10 @@ def build_mdl_docx_auto(req: BuildAuto):
         for k, v in header_overrides.items():
             if v:
                 mdl_model[k] = v
-
+        # ADD THIS DEBUG LOGGING:
+        logging.info(f"🔍 After header overrides, mdl_model auditor_name: {mdl_model.get('auditor_name')}")
+        logging.info(f"🔍 After header overrides, mdl_model auditee_name: {mdl_model.get('auditee_name')}")
+        logging.info(f"🔍 After header overrides, mdl_model recipient_name: {mdl_model.get('recipient_name')}")
         # ------------- sensible defaults for things the caller omitted -------------
         # Treasury listings: if not provided, use the SLFRF + common Treasury programs for demo
         if not req.treasury_listings:
