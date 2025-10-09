@@ -151,6 +151,16 @@ def _title_with_article(name: str) -> str:
         return ""
     return name if name.lower().startswith("the ") else f"The {name}"
 
+def _no_article(name: str) -> str:
+    """Return the name without 'The' article."""
+    if not name:
+        return ""
+    clean = name.strip()
+    # Remove "The " if it exists at the beginning
+    if clean.lower().startswith("the "):
+        return clean[4:].strip()
+    return clean
+
 def _from_fac_general(gen: List[Dict[str, Any]]) -> Dict[str, str]:
     """
     Pull best-effort defaults from FAC 'general' row.
@@ -2827,17 +2837,30 @@ def build_mdl_docx_auto(req: BuildAuto):
             clean = name.strip()
             return clean if clean.lower().startswith("the ") else f"The {clean}"
 
-        # Get RAW names from FAC (exactly as stored in database)
+        def _no_article(name: str) -> str:
+            """Return the name without 'The' article."""
+            if not name:
+                return ""
+            clean = name.strip()
+            # Remove "The " if it exists at the beginning
+            if clean.lower().startswith("the "):
+                return clean[4:].strip()
+            return clean
+                # Get RAW names from FAC (exactly as stored in database)
         raw_auditee = gen[0].get("auditee_name") or req.auditee_name
         raw_auditor = fac_defaults.get("auditor_name") or ""
         #recipient = _title_with_article(req.recipient_name or req.auditee_name)
         #recipient = _add_article_the(req.recipient_name or req.auditee_name)
         # Now add articles while preserving casing
-        recipient = _add_article_the(raw_auditee.upper() if raw_auditee else "")
+        # For address block - use WITHOUT "The"
+        address_recipient = _no_article(raw_auditee.upper() if raw_auditee else "")
+        narrative_recipient = _add_article_the(raw_auditee.upper() if raw_auditee else "")
         auditor = _normalize_auditor_name(raw_auditor.upper() if raw_auditor else "")
+        #recipient = _add_article_the(raw_auditee.upper() if raw_auditee else "")
+        #auditor = _normalize_auditor_name(raw_auditor.upper() if raw_auditor else "")
         header_overrides = {
             # recipient & period end
-            "recipient_name": recipient,
+            "recipient_name": address_recipient,
             "period_end_text": req.fy_end_text or fac_defaults.get("period_end_text") or mdl_model.get("period_end_text"),
 
             # address (title case street + city, uppercase state, keep zip as-is)
@@ -2849,7 +2872,7 @@ def build_mdl_docx_auto(req: BuildAuto):
             # auditor
             #"auditor_name": _normalize_auditor_name(req.auditor_name or fac_defaults.get("auditor_name") or ""),
             "auditor_name": auditor,  # use normalized name with "the" article
-            "auditee_name": recipient,
+            "auditee_name": narrative_recipient,
             # POC (title case name + title)
             "poc_name": _title_case(req.poc_name or fac_defaults.get("poc_name")),
             "poc_title": _title_case(req.poc_title or fac_defaults.get("poc_title")),
