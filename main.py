@@ -1342,38 +1342,6 @@ def build_mdl_model_from_fac(
 
     # --------- group findings under award_reference ----------
     programs_map: Dict[str, Dict[str, Any]] = {}
-    # for f in (fac_findings or []):
-    #     r = f.get("reference_number")
-    #     if not r:
-    #         continue
-    #     k = _norm_ref(r)
-    #     if k not in chosen_keys:
-    #         continue
-
-    #     award_ref = f.get("award_reference") or "UNKNOWN"
-    #     logging.info(f" FFFinding {r} -> award_ref: {award_ref}")
-    #     meta = award2meta.get(award_ref, {})
-    #     logging.info(f" award2meta lookup: {meta}")
-    #     group = programs_map.setdefault(award_ref, {
-    #         "assistance_listing": meta.get("assistance_listing", "Unknown"),
-    #         "program_name": meta.get("program_name", "Unknown Program"),
-    #         "findings": []
-    #     })
-        
-    #     # If ALN is Unknown, try to fill from finding-level override (XLSX)
-    #     if group.get("assistance_listing") in (None, "", "Unknown"):
-    #         # use the original finding reference if available
-    #         orig_ref = f.get("reference_number") or ""
-    #         # try both raw and normalized keys
-    #         cand_aln = None
-    #         if aln_overrides_by_finding:
-    #             cand_aln = (aln_overrides_by_finding.get(orig_ref)
-    #                         or aln_overrides_by_finding.get(_norm_ref(orig_ref)))
-    #         if cand_aln:
-    #             group["assistance_listing"] = cand_aln
-    #             # if we have an ALN→label map, upgrade program_name too
-    #             if cand_aln in aln_to_label:
-    #                 group["program_name"] = aln_to_label[cand_aln]
     for f in (fac_findings or []):
         r = f.get("reference_number")
         if not r:
@@ -1399,6 +1367,28 @@ def build_mdl_model_from_fac(
                     meta["program_name"] = aln_to_label[override_aln]
         
         logging.info(f"   Final meta: {meta}")
+
+        group = programs_map.setdefault(award_ref, {
+            "assistance_listing": meta.get("assistance_listing", "Unknown"),
+            "program_name": meta.get("program_name", "Unknown Program"),
+            "findings": []
+        })
+        
+        # If ALN is Unknown, try to fill from finding-level override (XLSX)
+        if group.get("assistance_listing") in (None, "", "Unknown"):
+            # use the original finding reference if available
+            orig_ref = f.get("reference_number") or ""
+            # try both raw and normalized keys
+            cand_aln = None
+            if aln_overrides_by_finding:
+                cand_aln = (aln_overrides_by_finding.get(orig_ref)
+                            or aln_overrides_by_finding.get(_norm_ref(orig_ref)))
+            if cand_aln:
+                group["assistance_listing"] = cand_aln
+                # if we have an ALN→label map, upgrade program_name too
+                if cand_aln in aln_to_label:
+                    group["program_name"] = aln_to_label[cand_aln]
+
         summary  = summarize_finding_text(text_by_ref.get(k, ""))
         cap_text = cap_by_ref.get(k)
 
