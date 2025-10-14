@@ -1238,7 +1238,7 @@ def build_mdl_model_from_fac(
         # 3) Treasury heuristics (common programs) — last resort
         nm = cur_name.lower()
         heuristics = [
-            ("slfrf", ("21.027", "Coronavirus State and Local Fiscal Recovery Funds (SLFRF)")),
+            ("slfrf", ("21.027", "Coronavirus State and Local Fiscal Recovery Funds (SLFRF)")),  # noqa: E501,
             ("fiscal recovery", ("21.027", "Coronavirus State and Local Fiscal Recovery Funds (SLFRF)")),
             ("emergency rental assistance", ("21.023", "Emergency Rental Assistance Program (ERA)")),
             ("homeowner assistance", ("21.026", "Homeowner Assistance Fund (HAF)")),
@@ -1744,13 +1744,76 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 
     return tbl
 
-def _insert_program_tables_at_anchor(doc: Document, anchor_para: Paragraph, programs: List[Dict[str, Any]]):
-    # Clean anchor text and delete any placeholder table immediately following it
+# def _insert_program_tables_at_anchor(doc: Document, anchor_para: Paragraph, programs: List[Dict[str, Any]]):
+#     # Clean anchor text and delete any placeholder table immediately following it
+#     text = _para_text(anchor_para).replace("[[PROGRAM_TABLES]]", "")
+#     _clear_runs(anchor_para)
+#     if text.strip():
+#         anchor_para.add_run(text)
+
+#     _delete_immediate_next_table(anchor_para)
+
+#     # Order programs by ALN
+#     def _al_key(p):
+#         return (p.get("assistance_listing") or "99.999")
+#     programs_sorted = sorted(programs or [], key=_al_key)
+
+#     last = anchor_para
+#     for p in programs_sorted:
+#         al = p.get("assistance_listing", "Unknown")
+#         name = p.get("program_name", "Unknown Program")
+#         heading = f"Assistance Listing Number/Program Name: {al} / {name}"
+#         heading_para = doc.add_paragraph()
+#         _clear_runs(heading_para); heading_para.add_run(heading)
+
+#         # splice heading after 'last'
+#         heading_el = heading_para._p
+#         heading_el.getparent().remove(heading_el)
+#         _insert_after(last, heading_el)
+#         last = heading_el
+
+#         # table
+#         tbl = _build_program_table(doc, p)
+#         tbl_el = tbl._tbl
+#         tbl_el.getparent().remove(tbl_el)
+#         _insert_after(last, tbl_el)
+#         last = tbl_el
+
+#         # CAPs
+#         for f in p.get("findings", []):
+#             cap_text = (f or {}).get("cap_text")
+#             if cap_text:
+#                 cap_title = doc.add_paragraph()
+#                 _clear_runs(cap_title); cap_title.add_run(f"Corrective Action Plan – {f.get('finding_id','')}")
+#                 cap_text_para = doc.add_paragraph()
+#                 _clear_runs(cap_text_para); cap_text_para.add_run(cap_text)
+
+#                 cap_title_el = cap_title._p; cap_text_el = cap_text_para._p
+#                 cap_title_el.getparent().remove(cap_title_el)
+#                 cap_text_el.getparent().remove(cap_text_el)
+#                 _insert_after(last, cap_title_el)
+#                 _insert_after(cap_title_el, cap_text_el)
+#                 last = cap_text_el
+
+#         # spacer
+#         spacer = doc.add_paragraph()
+#         spacer_el = spacer._p
+#         spacer_el.getparent().remove(spacer_el)
+#         _insert_after(last, spacer_el)
+#         last = spacer_el
+
+def _insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Paragraph, programs: List[Dict[str, Any]]):
+    """
+    Insert program tables without creating duplicate headers.
+    The template already has the header paragraph, we just insert tables.
+    """
+    # Clean anchor text
     text = _para_text(anchor_para).replace("[[PROGRAM_TABLES]]", "")
     _clear_runs(anchor_para)
     if text.strip():
         anchor_para.add_run(text)
 
+    # Delete any placeholder table immediately following the anchor
     _delete_immediate_next_table(anchor_para)
 
     # Order programs by ALN
@@ -1759,48 +1822,64 @@ def _insert_program_tables_at_anchor(doc: Document, anchor_para: Paragraph, prog
     programs_sorted = sorted(programs or [], key=_al_key)
 
     last = anchor_para
-    for p in programs_sorted:
+    
+    # For SINGLE program: just insert table (header already exists in template)
+    # For MULTIPLE programs: insert header + table for 2nd, 3rd, etc.
+    for idx, p in enumerate(programs_sorted):
         al = p.get("assistance_listing", "Unknown")
         name = p.get("program_name", "Unknown Program")
-        heading = f"Assistance Listing Number/Program Name: {al} / {name}"
-        heading_para = doc.add_paragraph()
-        _clear_runs(heading_para); heading_para.add_run(heading)
+        
+        # Only add header for 2nd+ programs (first uses the template header)
+        if idx > 0:
+            heading = f"Assistance Listing Number/Program Name: {al} / {name}"
+            heading_para = doc.add_paragraph()
+            _clear_runs(heading_para)
+            heading_para.add_run(heading)
+            
+            # Add spacing before the header
+            heading_para.paragraph_format.space_before = Pt(12)
+            
+            # Splice heading after 'last'
+            heading_el = heading_para._p
+            heading_el.getparent().remove(heading_el)
+            _insert_after(last, heading_el)
+            last = heading_el
 
-        # splice heading after 'last'
-        heading_el = heading_para._p
-        heading_el.getparent().remove(heading_el)
-        _insert_after(last, heading_el)
-        last = heading_el
-
-        # table
+        # Insert table
         tbl = _build_program_table(doc, p)
         tbl_el = tbl._tbl
         tbl_el.getparent().remove(tbl_el)
         _insert_after(last, tbl_el)
         last = tbl_el
 
-        # CAPs
+        # Insert CAPs after the table
         for f in p.get("findings", []):
             cap_text = (f or {}).get("cap_text")
             if cap_text:
                 cap_title = doc.add_paragraph()
-                _clear_runs(cap_title); cap_title.add_run(f"Corrective Action Plan – {f.get('finding_id','')}")
+                _clear_runs(cap_title)
+                cap_title.add_run(f"Corrective Action Plan – {f.get('finding_id','')}")
+                
                 cap_text_para = doc.add_paragraph()
-                _clear_runs(cap_text_para); cap_text_para.add_run(cap_text)
+                _clear_runs(cap_text_para)
+                cap_text_para.add_run(cap_text)
 
-                cap_title_el = cap_title._p; cap_text_el = cap_text_para._p
+                cap_title_el = cap_title._p
+                cap_text_el = cap_text_para._p
                 cap_title_el.getparent().remove(cap_title_el)
                 cap_text_el.getparent().remove(cap_text_el)
+                
                 _insert_after(last, cap_title_el)
                 _insert_after(cap_title_el, cap_text_el)
                 last = cap_text_el
 
-        # spacer
-        spacer = doc.add_paragraph()
-        spacer_el = spacer._p
-        spacer_el.getparent().remove(spacer_el)
-        _insert_after(last, spacer_el)
-        last = spacer_el
+        # Spacer between programs (if multiple)
+        if idx < len(programs_sorted) - 1:
+            spacer = doc.add_paragraph()
+            spacer_el = spacer._p
+            spacer_el.getparent().remove(spacer_el)
+            _insert_after(last, spacer_el)
+            last = spacer_el
 
 def _remove_watermarks(doc):
     """
@@ -1973,7 +2052,8 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             label_p.add_run(f"Assistance Listing Number/Program Name: {aln} / {pname}")
     except Exception:
         pass
-    _insert_program_tables_at_anchor(doc, anchor, programs)
+    #_insert_program_tables_at_anchor(doc, anchor, programs)
+    _insert_program_tables_at_anchor_no_headers(doc, anchor, programs)
     # Remove duplicate narrative blocks under the table
     # Remove duplicate narrative that appears below the table
     try:
@@ -2916,12 +2996,19 @@ def build_mdl_docx_auto(req: BuildAuto):
                         # Uncomment to prefer override:
                         # a["assistance_listing"] = override_aln
         # ========== HARDCODED ALN FIX ==========
+        # TREASURY_PROGRAMS = {
+        #     "21.027": "Coronavirus State and Local Fiscal Recovery Funds (SLFRF)",
+        #     "21.023": "Emergency Rental Assistance Program (ERA)",
+        #     "21.026": "Homeowner Assistance Fund (HAF)",
+        # }
         TREASURY_PROGRAMS = {
-            "21.027": "Coronavirus State and Local Fiscal Recovery Funds (SLFRF)",
+            "21.027": "Coronavirus State and Local Fiscal Recovery Funds (SLFRF)",  # ✅ Added "Coronavirus"
             "21.023": "Emergency Rental Assistance Program (ERA)",
             "21.026": "Homeowner Assistance Fund (HAF)",
+            "21.029": "Capital Projects Fund (CPF)",
+            "21.031": "State Small Business Credit Initiative (SSBCI)",
+            "21.032": "Local Assistance and Tribal Consistency Fund (LATCF)",
         }
-
         for a in federal_awards:
             aln = (a.get("assistance_listing") or "").strip()
             if aln in TREASURY_PROGRAMS:
