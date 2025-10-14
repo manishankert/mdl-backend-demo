@@ -1342,6 +1342,38 @@ def build_mdl_model_from_fac(
 
     # --------- group findings under award_reference ----------
     programs_map: Dict[str, Dict[str, Any]] = {}
+    # for f in (fac_findings or []):
+    #     r = f.get("reference_number")
+    #     if not r:
+    #         continue
+    #     k = _norm_ref(r)
+    #     if k not in chosen_keys:
+    #         continue
+
+    #     award_ref = f.get("award_reference") or "UNKNOWN"
+    #     logging.info(f" FFFinding {r} -> award_ref: {award_ref}")
+    #     meta = award2meta.get(award_ref, {})
+    #     logging.info(f" award2meta lookup: {meta}")
+    #     group = programs_map.setdefault(award_ref, {
+    #         "assistance_listing": meta.get("assistance_listing", "Unknown"),
+    #         "program_name": meta.get("program_name", "Unknown Program"),
+    #         "findings": []
+    #     })
+        
+    #     # If ALN is Unknown, try to fill from finding-level override (XLSX)
+    #     if group.get("assistance_listing") in (None, "", "Unknown"):
+    #         # use the original finding reference if available
+    #         orig_ref = f.get("reference_number") or ""
+    #         # try both raw and normalized keys
+    #         cand_aln = None
+    #         if aln_overrides_by_finding:
+    #             cand_aln = (aln_overrides_by_finding.get(orig_ref)
+    #                         or aln_overrides_by_finding.get(_norm_ref(orig_ref)))
+    #         if cand_aln:
+    #             group["assistance_listing"] = cand_aln
+    #             # if we have an ALN→label map, upgrade program_name too
+    #             if cand_aln in aln_to_label:
+    #                 group["program_name"] = aln_to_label[cand_aln]
     for f in (fac_findings or []):
         r = f.get("reference_number")
         if not r:
@@ -1351,29 +1383,22 @@ def build_mdl_model_from_fac(
             continue
 
         award_ref = f.get("award_reference") or "UNKNOWN"
-        logging.info(f" FFFinding {r} -> award_ref: {award_ref}")
-        meta = award2meta.get(award_ref, {})
-        logging.info(f" award2meta lookup: {meta}")
-        group = programs_map.setdefault(award_ref, {
-            "assistance_listing": meta.get("assistance_listing", "Unknown"),
-            "program_name": meta.get("program_name", "Unknown Program"),
-            "findings": []
-        })
+        logging.info(f"🔍 Finding {r} → award_ref: {award_ref}")
         
-        # If ALN is Unknown, try to fill from finding-level override (XLSX)
-        if group.get("assistance_listing") in (None, "", "Unknown"):
-            # use the original finding reference if available
-            orig_ref = f.get("reference_number") or ""
-            # try both raw and normalized keys
-            cand_aln = None
-            if aln_overrides_by_finding:
-                cand_aln = (aln_overrides_by_finding.get(orig_ref)
-                            or aln_overrides_by_finding.get(_norm_ref(orig_ref)))
-            if cand_aln:
-                group["assistance_listing"] = cand_aln
-                # if we have an ALN→label map, upgrade program_name too
-                if cand_aln in aln_to_label:
-                    group["program_name"] = aln_to_label[cand_aln]
+        # Try to get metadata from award lookup
+        meta = award2meta.get(award_ref, {})
+        
+        # If not found in award2meta, try aln_overrides_by_finding
+        if not meta.get("assistance_listing") or meta.get("assistance_listing") == "Unknown":
+            if aln_overrides_by_finding and r in aln_overrides_by_finding:
+                override_aln = aln_overrides_by_finding[r]
+                logging.info(f"   ✅ Using finding-level ALN override: {override_aln}")
+                meta["assistance_listing"] = override_aln
+                # Update program name if we have ALN mapping
+                if override_aln in aln_to_label:
+                    meta["program_name"] = aln_to_label[override_aln]
+        
+        logging.info(f"   Final meta: {meta}")
         summary  = summarize_finding_text(text_by_ref.get(k, ""))
         cap_text = cap_by_ref.get(k)
 
@@ -2048,42 +2073,157 @@ def _find_col(headers, candidates):
                 return i
     return None
 
+# def _aln_overrides_from_summary(report_id: str):
+#     """
+#     Returns (aln_by_award, aln_by_finding) by parsing the public FAC summary XLSX.
+#     """
+#     url = f"https://app.fac.gov/dissemination/summary-report/xlsx/{report_id}"
+#     r = requests.get(url, timeout=20)
+#     r.raise_for_status()
+
+#     import openpyxl
+#     wb = openpyxl.load_workbook(BytesIO(r.content), data_only=True)
+
+#     aln_by_award, aln_by_finding = {}, {}
+#     # Look for a sheet with findings
+#     for ws in wb.worksheets:
+#         headers = _read_headers(ws)
+#         if not any(headers):
+#             continue
+#         i_findref = _find_col(headers, ["finding_ref_number", "finding reference number", "reference_number"])
+#         i_award   = _find_col(headers, ["award_reference", "award reference"])
+#         i_aln     = _find_col(headers, ["assistance listing", "assistance listing number", "aln", "cfda", "cfda number"])
+#         if i_aln is None:
+#             continue
+
+#         for row in ws.iter_rows(min_row=2, values_only=True):
+#             findref = (row[i_findref] if i_findref is not None else "") or ""
+#             award   = (row[i_award]   if i_award   is not None else "") or ""
+#             aln     = (row[i_aln]     if i_aln     is not None else "") or ""
+#             aln = str(aln).strip()
+#             if not aln:
+#                 continue
+#             if award:
+#                 aln_by_award[str(award).strip()] = aln
+#             if findref:
+#                 aln_by_finding[str(findref).strip()] = aln
+#         break  # first matching sheet is enough
+
+#     return aln_by_award, aln_by_finding
+
 def _aln_overrides_from_summary(report_id: str):
     """
     Returns (aln_by_award, aln_by_finding) by parsing the public FAC summary XLSX.
+    Updated to handle the actual FAC Excel structure correctly.
     """
     url = f"https://app.fac.gov/dissemination/summary-report/xlsx/{report_id}"
+    logging.info(f"📥 Downloading FAC summary from: {url}")
+    
     r = requests.get(url, timeout=20)
     r.raise_for_status()
 
     import openpyxl
     wb = openpyxl.load_workbook(BytesIO(r.content), data_only=True)
 
-    aln_by_award, aln_by_finding = {}, {}
-    # Look for a sheet with findings
-    for ws in wb.worksheets:
-        headers = _read_headers(ws)
-        if not any(headers):
-            continue
-        i_findref = _find_col(headers, ["finding_ref_number", "finding reference number", "reference_number"])
-        i_award   = _find_col(headers, ["award_reference", "award reference"])
-        i_aln     = _find_col(headers, ["assistance listing", "assistance listing number", "aln", "cfda", "cfda number"])
-        if i_aln is None:
-            continue
-
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            findref = (row[i_findref] if i_findref is not None else "") or ""
-            award   = (row[i_award]   if i_award   is not None else "") or ""
-            aln     = (row[i_aln]     if i_aln     is not None else "") or ""
-            aln = str(aln).strip()
-            if not aln:
-                continue
-            if award:
-                aln_by_award[str(award).strip()] = aln
-            if findref:
-                aln_by_finding[str(findref).strip()] = aln
-        break  # first matching sheet is enough
-
+    aln_by_award = {}
+    aln_by_finding = {}
+    
+    logging.info(f"📑 Excel sheets available: {wb.sheetnames}")
+    
+    # ============================================================
+    # PART 1: Process FEDERALAWARD sheet
+    # ============================================================
+    if 'federalaward' in wb.sheetnames:
+        ws_fed = wb['federalaward']
+        logging.info(f"\n🔍 Processing 'federalaward' sheet (range: {ws_fed.dimensions})")
+        
+        # Read headers from row 1
+        headers = [str(cell.value or "").strip().lower() for cell in ws_fed[1]]
+        logging.info(f"   Headers: {headers}")
+        
+        # Find column indices
+        try:
+            i_award_ref = headers.index('award_reference')
+            i_aln = headers.index('aln')
+            i_program = headers.index('federal_program_name')
+            
+            logging.info(f"   Column indices - award_ref:{i_award_ref}, aln:{i_aln}, program:{i_program}")
+            
+            # Process data rows (starting from row 2)
+            award_count = 0
+            for row in ws_fed.iter_rows(min_row=2, values_only=True):
+                if not row or all(c is None for c in row):
+                    continue
+                
+                award_ref = str(row[i_award_ref] or "").strip()
+                aln = str(row[i_aln] or "").strip()
+                program_name = str(row[i_program] or "").strip()
+                
+                # Validate ALN format (should be like 21.027)
+                if award_ref and aln and re.match(r'^\d{2}\.\d{3}', aln):
+                    aln_by_award[award_ref] = aln
+                    award_count += 1
+                    logging.info(f"   ✅ Award: {award_ref} → {aln} ({program_name[:50]})")
+            
+            logging.info(f"   📊 Processed {award_count} federal awards")
+            
+        except ValueError as e:
+            logging.warning(f"   ⚠️  Could not find required columns in federalaward sheet: {e}")
+    
+    # ============================================================
+    # PART 2: Process FINDING sheet
+    # ============================================================
+    if 'finding' in wb.sheetnames:
+        ws_find = wb['finding']
+        logging.info(f"\n🔍 Processing 'finding' sheet (range: {ws_find.dimensions})")
+        
+        # Read headers from row 1
+        headers = [str(cell.value or "").strip().lower() for cell in ws_find[1]]
+        logging.info(f"   Headers: {headers}")
+        
+        # Find column indices
+        try:
+            i_ref_num = headers.index('reference_number')
+            i_aln = headers.index('aln')
+            i_award_ref = headers.index('award_reference')
+            
+            logging.info(f"   Column indices - ref_num:{i_ref_num}, aln:{i_aln}, award_ref:{i_award_ref}")
+            
+            # Process data rows
+            finding_count = 0
+            for row in ws_find.iter_rows(min_row=2, values_only=True):
+                if not row or all(c is None for c in row):
+                    continue
+                
+                ref_num = str(row[i_ref_num] or "").strip()
+                aln = str(row[i_aln] or "").strip()
+                award_ref = str(row[i_award_ref] or "").strip()
+                
+                # Validate ALN format
+                if ref_num and aln and re.match(r'^\d{2}\.\d{3}', aln):
+                    aln_by_finding[ref_num] = aln
+                    finding_count += 1
+                    logging.info(f"   ✅ Finding: {ref_num} → {aln} (Award: {award_ref})")
+            
+            logging.info(f"   📊 Processed {finding_count} findings")
+            
+        except ValueError as e:
+            logging.warning(f"   ⚠️  Could not find required columns in finding sheet: {e}")
+    
+    logging.info(f"\n✅ FINAL RESULTS:")
+    logging.info(f"   Award mappings: {len(aln_by_award)}")
+    logging.info(f"   Finding mappings: {len(aln_by_finding)}")
+    
+    if aln_by_award:
+        logging.info(f"\n   Sample award mappings:")
+        for k, v in list(aln_by_award.items())[:3]:
+            logging.info(f"     {k} → {v}")
+    
+    if aln_by_finding:
+        logging.info(f"\n   Sample finding mappings:")
+        for k, v in list(aln_by_finding.items())[:3]:
+            logging.info(f"     {k} → {v}")
+    
     return aln_by_award, aln_by_finding
 
 # ------------------------------------------------------------------------------
@@ -2759,13 +2899,32 @@ def build_mdl_docx_auto(req: BuildAuto):
                 federal_awards = []
 
         # APPLY ALN OVERRIDES BEFORE BUILDING MODEL
+        # if federal_awards and aln_by_award:
+        #     for a in federal_awards:
+        #         ar = (a.get("award_reference") or "").strip()
+        #         # If no ALN, try to get from override
+        #         if not (a.get("assistance_listing") or "").strip() and ar in aln_by_award:
+        #             a["assistance_listing"] = aln_by_award[ar]
+        #             logging.info(f"🔧 Applied ALN override for {ar}: {aln_by_award[ar]}")
         if federal_awards and aln_by_award:
+            logging.info(f"🔧 Applying ALN overrides from {len(aln_by_award)} award mappings")
             for a in federal_awards:
                 ar = (a.get("award_reference") or "").strip()
-                # If no ALN, try to get from override
-                if not (a.get("assistance_listing") or "").strip() and ar in aln_by_award:
+                current_aln = (a.get("assistance_listing") or "").strip()
+                
+                logging.info(f"   Award {ar}: current ALN = '{current_aln}'")
+                
+                # If no ALN or it's 'Unknown', try to get from override
+                if (not current_aln or current_aln == "Unknown") and ar in aln_by_award:
                     a["assistance_listing"] = aln_by_award[ar]
-                    logging.info(f"🔧 Applied ALN override for {ar}: {aln_by_award[ar]}")
+                    logging.info(f"   ✅ Applied override: {ar} → {aln_by_award[ar]}")
+                elif ar in aln_by_award:
+                    # Even if there's an ALN, if override exists and differs, consider using it
+                    override_aln = aln_by_award[ar]
+                    if override_aln != current_aln:
+                        logging.info(f"   ⚠️  ALN mismatch for {ar}: '{current_aln}' vs override '{override_aln}'")
+                        # Uncomment to prefer override:
+                        # a["assistance_listing"] = override_aln
         # ========== HARDCODED ALN FIX ==========
         TREASURY_PROGRAMS = {
             "21.027": "Coronavirus State and Local Fiscal Recovery Funds (SLFRF)",
