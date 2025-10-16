@@ -1934,6 +1934,31 @@ def _find_para_by_contains(doc: Document, needle: str) -> Optional[Paragraph]:
                 return p
     return None
 
+def _remove_duplicate_program_headers(doc: Document, first_label: Paragraph):
+    """
+    Remove any duplicate 'Assistance Listing Number/Program Name' paragraphs 
+    that appear after the first one (the template's original).
+    """
+    # Get all paragraphs
+    all_paras = list(doc.paragraphs)
+    
+    # Find the index of the first label
+    try:
+        first_idx = all_paras.index(first_label)
+    except ValueError:
+        return  # Can't find it, give up
+    
+    # Look for duplicates after the first one (within the next 5 paragraphs)
+    for i in range(first_idx + 1, min(first_idx + 6, len(all_paras))):
+        p = all_paras[i]
+        text = _para_text(p)
+        
+        # If this paragraph also starts with "Assistance Listing Number/Program Name"
+        if "Assistance Listing Number/Program Name" in text:
+            logging.info(f"🗑️  Removing duplicate header: {text[:80]}")
+            _remove_paragraph(p)
+            break  # Only remove one duplicate
+
 def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> bytes:
     """
     Open a .docx template and:
@@ -2038,18 +2063,20 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             aln = (first.get("assistance_listing") or "").strip()
             pname = (first.get("program_name") or "").strip()
             # Title-case the program if it somehow stayed all-caps
-            def _fix_case(s: str) -> str:
-                if s.isupper():
-                    lowers = {"and","or","the","of","for","to","in","on","by","with","a","an"}
-                    parts = []
-                    for w in s.split():
-                        lw = w.lower()
-                        parts.append(lw if lw in lowers else lw.capitalize())
-                    return " ".join(parts)
-                return s
-            pname = _fix_case(pname)
+            # def _fix_case(s: str) -> str:
+            #     if s.isupper():
+            #         lowers = {"and","or","the","of","for","to","in","on","by","with","a","an"}
+            #         parts = []
+            #         for w in s.split():
+            #             lw = w.lower()
+            #             parts.append(lw if lw in lowers else lw.capitalize())
+            #         return " ".join(parts)
+            #     return s
+            # pname = _fix_case(pname)
             _clear_runs(label_p)
             label_p.add_run(f"Assistance Listing Number/Program Name: {aln} / {pname}")
+            # ✅ ADD THIS: Remove any duplicate headers that follow
+            _remove_duplicate_program_headers(doc, label_p)
     except Exception:
         pass
     #_insert_program_tables_at_anchor(doc, anchor, programs)
