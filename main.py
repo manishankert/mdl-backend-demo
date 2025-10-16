@@ -1802,6 +1802,86 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 #         _insert_after(last, spacer_el)
 #         last = spacer_el
 
+# def _insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Paragraph, programs: List[Dict[str, Any]]):
+#     """
+#     Insert program tables without creating duplicate headers.
+#     The template already has the header paragraph, we just insert tables.
+#     """
+#     # Clean anchor text
+#     text = _para_text(anchor_para).replace("[[PROGRAM_TABLES]]", "")
+#     _clear_runs(anchor_para)
+#     if text.strip():
+#         anchor_para.add_run(text)
+
+#     # Delete any placeholder table immediately following the anchor
+#     _delete_immediate_next_table(anchor_para)
+
+#     # Order programs by ALN
+#     def _al_key(p):
+#         return (p.get("assistance_listing") or "99.999")
+#     programs_sorted = sorted(programs or [], key=_al_key)
+
+#     last = anchor_para
+    
+#     # For SINGLE program: just insert table (header already exists in template)
+#     # For MULTIPLE programs: insert header + table for 2nd, 3rd, etc.
+#     for idx, p in enumerate(programs_sorted):
+#         al = p.get("assistance_listing", "Unknown")
+#         name = p.get("program_name", "Unknown Program")
+        
+#         # Only add header for 2nd+ programs (first uses the template header)
+#         if idx > 0:
+#             heading = f"Assistance Listing Number/Program Name: {al} / {name}"
+#             heading_para = doc.add_paragraph()
+#             _clear_runs(heading_para)
+#             heading_para.add_run(heading)
+            
+#             # Add spacing before the header
+#             heading_para.paragraph_format.space_before = Pt(12)
+            
+#             # Splice heading after 'last'
+#             heading_el = heading_para._p
+#             heading_el.getparent().remove(heading_el)
+#             _insert_after(last, heading_el)
+#             last = heading_el
+
+#         # Insert table
+#         tbl = _build_program_table(doc, p)
+#         tbl_el = tbl._tbl
+#         tbl_el.getparent().remove(tbl_el)
+#         _insert_after(last, tbl_el)
+#         last = tbl_el
+
+#         # Insert CAPs after the table
+#         for f in p.get("findings", []):
+#             cap_text = (f or {}).get("cap_text")
+#             if cap_text:
+#                 cap_title = doc.add_paragraph()
+#                 _clear_runs(cap_title)
+#                 cap_title.add_run(f"Corrective Action Plan – {f.get('finding_id','')}")
+                
+#                 cap_text_para = doc.add_paragraph()
+#                 _clear_runs(cap_text_para)
+#                 cap_text_para.add_run(cap_text)
+
+#                 cap_title_el = cap_title._p
+#                 cap_text_el = cap_text_para._p
+#                 cap_title_el.getparent().remove(cap_title_el)
+#                 cap_text_el.getparent().remove(cap_text_el)
+                
+#                 _insert_after(last, cap_title_el)
+#                 _insert_after(cap_title_el, cap_text_el)
+#                 last = cap_text_el
+
+#         # Spacer between programs (if multiple)
+#         if idx < len(programs_sorted) - 1:
+#             spacer = doc.add_paragraph()
+#             spacer_el = spacer._p
+#             spacer_el.getparent().remove(spacer_el)
+#             _insert_after(last, spacer_el)
+#             last = spacer_el
+
+
 def _insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Paragraph, programs: List[Dict[str, Any]]):
     """
     Insert program tables without creating duplicate headers.
@@ -1831,10 +1911,18 @@ def _insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Para
         
         # Only add header for 2nd+ programs (first uses the template header)
         if idx > 0:
-            heading = f"Assistance Listing Number/Program Name: {al} / {name}"
             heading_para = doc.add_paragraph()
             _clear_runs(heading_para)
-            heading_para.add_run(heading)
+            
+            # Add bold header text
+            header_run = heading_para.add_run("Assistance Listing Number/Program Name:")
+            header_run.bold = True
+            
+            # Add line break
+            heading_para.add_run("\n")
+            
+            # Add the ALN and program name (not bold)
+            heading_para.add_run(f"{al} / {name}")
             
             # Add spacing before the header
             heading_para.paragraph_format.space_before = Pt(12)
@@ -1934,6 +2022,31 @@ def _find_para_by_contains(doc: Document, needle: str) -> Optional[Paragraph]:
                 return p
     return None
 
+# def _remove_duplicate_program_headers(doc: Document, first_label: Paragraph):
+#     """
+#     Remove any duplicate 'Assistance Listing Number/Program Name' paragraphs 
+#     that appear after the first one (the template's original).
+#     """
+#     # Get all paragraphs
+#     all_paras = list(doc.paragraphs)
+    
+#     # Find the index of the first label
+#     try:
+#         first_idx = all_paras.index(first_label)
+#     except ValueError:
+#         return  # Can't find it, give up
+    
+#     # Look for duplicates after the first one (within the next 5 paragraphs)
+#     for i in range(first_idx + 1, min(first_idx + 6, len(all_paras))):
+#         p = all_paras[i]
+#         text = _para_text(p)
+        
+#         # If this paragraph also starts with "Assistance Listing Number/Program Name"
+#         if "Assistance Listing Number/Program Name" in text:
+#             logging.info(f"🗑️  Removing duplicate header: {text[:80]}")
+#             _remove_paragraph(p)
+#             break  # Only remove one duplicate
+
 def _remove_duplicate_program_headers(doc: Document, first_label: Paragraph):
     """
     Remove any duplicate 'Assistance Listing Number/Program Name' paragraphs 
@@ -1953,11 +2066,12 @@ def _remove_duplicate_program_headers(doc: Document, first_label: Paragraph):
         p = all_paras[i]
         text = _para_text(p)
         
-        # If this paragraph also starts with "Assistance Listing Number/Program Name"
+        # If this paragraph also contains "Assistance Listing Number/Program Name"
         if "Assistance Listing Number/Program Name" in text:
             logging.info(f"🗑️  Removing duplicate header: {text[:80]}")
             _remove_paragraph(p)
             break  # Only remove one duplicate
+
 
 def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> bytes:
     """
@@ -2055,6 +2169,30 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         raise HTTPException(400, "Template does not contain the [[PROGRAM_TABLES]] anchor paragraph.")
     programs = model.get("programs", []) or []
     # Find the visible label paragraph and fill it with ALN/Program from the first program
+    # try:
+    #     label_p = _find_para_by_contains(doc, "Assistance Listing Number/Program Name")
+    #     progs = model.get("programs") or []
+    #     if label_p is not None and progs:
+    #         first = progs[0]
+    #         aln = (first.get("assistance_listing") or "").strip()
+    #         pname = (first.get("program_name") or "").strip()
+    #         # Title-case the program if it somehow stayed all-caps
+    #         # def _fix_case(s: str) -> str:
+    #         #     if s.isupper():
+    #         #         lowers = {"and","or","the","of","for","to","in","on","by","with","a","an"}
+    #         #         parts = []
+    #         #         for w in s.split():
+    #         #             lw = w.lower()
+    #         #             parts.append(lw if lw in lowers else lw.capitalize())
+    #         #         return " ".join(parts)
+    #         #     return s
+    #         # pname = _fix_case(pname)
+    #         _clear_runs(label_p)
+    #         label_p.add_run(f"Assistance Listing Number/Program Name: {aln} / {pname}")
+    #         # ✅ ADD THIS: Remove any duplicate headers that follow
+    #         _remove_duplicate_program_headers(doc, label_p)
+    # except Exception:
+    #     pass
     try:
         label_p = _find_para_by_contains(doc, "Assistance Listing Number/Program Name")
         progs = model.get("programs") or []
@@ -2062,22 +2200,24 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             first = progs[0]
             aln = (first.get("assistance_listing") or "").strip()
             pname = (first.get("program_name") or "").strip()
-            # Title-case the program if it somehow stayed all-caps
-            # def _fix_case(s: str) -> str:
-            #     if s.isupper():
-            #         lowers = {"and","or","the","of","for","to","in","on","by","with","a","an"}
-            #         parts = []
-            #         for w in s.split():
-            #             lw = w.lower()
-            #             parts.append(lw if lw in lowers else lw.capitalize())
-            #         return " ".join(parts)
-            #     return s
-            # pname = _fix_case(pname)
+            
+            # Clear the paragraph and add formatted text
             _clear_runs(label_p)
-            label_p.add_run(f"Assistance Listing Number/Program Name: {aln} / {pname}")
-            # ✅ ADD THIS: Remove any duplicate headers that follow
+            
+            # Add bold header text
+            header_run = label_p.add_run("Assistance Listing Number/Program Name:")
+            header_run.bold = True
+            
+            # Add line break
+            label_p.add_run("\n")
+            
+            # Add the ALN and program name (not bold)
+            label_p.add_run(f"{aln} / {pname}")
+            
+            # Remove any duplicate headers that follow
             _remove_duplicate_program_headers(doc, label_p)
-    except Exception:
+    except Exception as e:
+        logging.warning(f"Error handling program headers: {e}")
         pass
     #_insert_program_tables_at_anchor(doc, anchor, programs)
     _insert_program_tables_at_anchor_no_headers(doc, anchor, programs)
