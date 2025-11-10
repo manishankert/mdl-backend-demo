@@ -2022,6 +2022,24 @@ def _find_para_by_contains(doc: Document, needle: str) -> Optional[Paragraph]:
                 return p
     return None
 
+# ✅ ADD this new simple function:
+def _format_name_standard_case(name: str) -> str:
+    """
+    Format name in standard title case, removing 'The' article if present.
+    Example: "CITY OF ANN ARBOR, MICHIGAN" -> "City Of Ann Arbor, Michigan"
+    """
+    if not name:
+        return ""
+    
+    clean = name.strip()
+    
+    # Remove "The" or "the" if it exists at the beginning
+    if clean.lower().startswith("the "):
+        clean = clean[4:].strip()
+    
+    # Convert to title case
+    return _title_case(clean)
+
 # def _remove_duplicate_program_headers(doc: Document, first_label: Paragraph):
 #     """
 #     Remove any duplicate 'Assistance Listing Number/Program Name' paragraphs 
@@ -3224,46 +3242,50 @@ def build_mdl_docx_auto(req: BuildAuto):
         #     # Add "the" if not present
         #     return clean if clean.lower().startswith("the ") else f"the {clean}"
 
-        def _normalize_auditor_name(name: str) -> str:
-            """Add 'the' article but preserve original casing from API."""
-            if not name:
-                return ""
-            clean = name.strip()
-            # Just add "the" - don't modify casing at all
-            return clean if clean.lower().startswith("the ") else f"the {clean}"
+        # def _normalize_auditor_name(name: str) -> str:
+        #     """Add 'the' article but preserve original casing from API."""
+        #     if not name:
+        #         return ""
+        #     clean = name.strip()
+        #     # Just add "the" - don't modify casing at all
+        #     return clean if clean.lower().startswith("the ") else f"the {clean}"
 
         # Don't use _title_with_article, just add "The" prefix
-        def _add_article_the(name: str) -> str:
-            """Add 'The' article but preserve original casing from API."""
-            if not name:
-                return ""
-            clean = name.strip()
-            return clean if clean.lower().startswith("the ") else f"The {clean}"
+        # def _add_article_the(name: str) -> str:
+        #     """Add 'The' article but preserve original casing from API."""
+        #     if not name:
+        #         return ""
+        #     clean = name.strip()
+        #     return clean if clean.lower().startswith("the ") else f"The {clean}"
 
-        def _no_article(name: str) -> str:
-            """Return the name without 'The' article."""
-            if not name:
-                return ""
-            clean = name.strip()
-            # Remove "The " if it exists at the beginning
-            if clean.lower().startswith("the "):
-                return clean[4:].strip()
-            return clean
-                # Get RAW names from FAC (exactly as stored in database)
+        # def _no_article(name: str) -> str:
+        #     """Return the name without 'The' article."""
+        #     if not name:
+        #         return ""
+        #     clean = name.strip()
+        #     # Remove "The " if it exists at the beginning
+        #     if clean.lower().startswith("the "):
+        #         return clean[4:].strip()
+        #     return clean
+        # Get RAW names from FAC (exactly as stored in database)
         raw_auditee = gen[0].get("auditee_name") or req.auditee_name
         raw_auditor = fac_defaults.get("auditor_name") or ""
         #recipient = _title_with_article(req.recipient_name or req.auditee_name)
         #recipient = _add_article_the(req.recipient_name or req.auditee_name)
         # Now add articles while preserving casing
         # For address block - use WITHOUT "The"
-        address_recipient = _no_article(raw_auditee.upper() if raw_auditee else "")
-        narrative_recipient = _add_article_the(raw_auditee.upper() if raw_auditee else "")
-        auditor = _normalize_auditor_name(raw_auditor.upper() if raw_auditor else "")
+        # address_recipient = _no_article(raw_auditee.upper() if raw_auditee else "")
+        # narrative_recipient = _add_article_the(raw_auditee.upper() if raw_auditee else "")
+        # auditor = _normalize_auditor_name(raw_auditor.upper() if raw_auditor else "")
         #recipient = _add_article_the(raw_auditee.upper() if raw_auditee else "")
         #auditor = _normalize_auditor_name(raw_auditor.upper() if raw_auditor else "")
+
+        # ✅ NEW CODE - Use standard case everywhere, no "The" article:
+        recipient_formatted = _format_name_standard_case(raw_auditee)
+        auditor_formatted = _format_name_standard_case(raw_auditor)
         header_overrides = {
             # recipient & period end
-            "recipient_name": address_recipient,
+            "recipient_name": recipient_formatted,
             "period_end_text": req.fy_end_text or fac_defaults.get("period_end_text") or mdl_model.get("period_end_text"),
 
             # address (title case street + city, uppercase state, keep zip as-is)
@@ -3274,8 +3296,8 @@ def build_mdl_docx_auto(req: BuildAuto):
 
             # auditor
             #"auditor_name": _normalize_auditor_name(req.auditor_name or fac_defaults.get("auditor_name") or ""),
-            "auditor_name": auditor,  # use normalized name with "the" article
-            "auditee_name": narrative_recipient,
+            "auditor_name": auditor_formatted,  # use normalized name with "the" article
+            "auditee_name": recipient_formatted,
             # POC (title case name + title)
             "poc_name": _title_case(req.poc_name or fac_defaults.get("poc_name")),
             "poc_title": _title_case(req.poc_title or fac_defaults.get("poc_title")),
