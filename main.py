@@ -2083,7 +2083,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         raise HTTPException(400, f"Template not found: {template_path}")
 
     doc = Document(template_path)
-    _remove_watermarks(doc)  # remove DRAFT/Watermark shapes immediately
+    #_remove_watermarks(doc)  # remove DRAFT/Watermark shapes immediately
 
     # Dates
     _, letter_date_long = format_letter_date(model.get("letter_date_iso"))
