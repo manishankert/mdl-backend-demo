@@ -897,6 +897,37 @@ def _with_the_allcaps(name: str) -> str:
     core = raw[4:].strip() if raw.lower().startswith("the ") else raw
     return f"the {_allcaps(core)}"
 
+def _add_hyperlink(paragraph, url, text):
+    """
+    Add a hyperlink to a paragraph.
+    """
+    # This gets access to the document.xml.rels file and gets a new relation id value
+    part = paragraph.part
+    r_id = part.relate_to(url, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink', is_external=True)
+
+    # Create the w:hyperlink tag and add needed values
+    hyperlink = OxmlElement('w:hyperlink')
+    hyperlink.set(qn('r:id'), r_id)
+
+    # Create a new run object (a wrapper over a w:r element)
+    new_run = OxmlElement('w:r')
+
+    # Set the run's style to Hyperlink style
+    rPr = OxmlElement('w:rPr')
+    rStyle = OxmlElement('w:rStyle')
+    rStyle.set(qn('w:val'), 'Hyperlink')
+    rPr.append(rStyle)
+    new_run.append(rPr)
+
+    # Add the text
+    new_run.text = text
+    hyperlink.append(new_run)
+
+    # Add the hyperlink to the paragraph
+    paragraph._p.append(hyperlink)
+
+    return hyperlink
+
 def render_mdl_html(model: Dict[str, Any]) -> str:
     letter_date_iso = model.get("letter_date_iso")
     _, letter_date_long = format_letter_date(letter_date_iso)
@@ -931,7 +962,7 @@ def render_mdl_html(model: Dict[str, Any]) -> str:
           <table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%; font-size:10.5pt;">
             <tr>
               <th>Audit<br>Finding #</th>
-              <th>Compliance Type -<br>Audit Finding</th>
+              <th>Compliance Type -<br>Audit Finding Summary</th>
               <th>Audit Finding<br>Determination</th>
               <th>Questioned Cost<br>Determination</th>
               <th>CAP<br>Determination</th>
@@ -1708,7 +1739,7 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 
     headers = [
         "Audit\nFinding #",
-        "Compliance Type -\nAudit Finding",
+        "Compliance Type -\nAudit Finding Summary",
         "Audit Finding\nDetermination",
         "Questioned Cost\nDetermination",
         "CAP\nDetermination",
@@ -1716,25 +1747,75 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
     for i, h in enumerate(headers):
         cell = tbl.cell(0, i)
         _clear_runs(cell.paragraphs[0])
-        cell.paragraphs[0].add_run(h)
+        run = cell.paragraphs[0].add_run(h)
+        run.bold = True  # ✅ Make header text bold
+        #cell.paragraphs[0].add_run(h)
         _shade_cell(cell, "E7E6E6")
         cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
         _tight_paragraph(cell.paragraphs[0])
 
+    # if findings:
+    #     for r, f in enumerate(findings, start=1):
+    #         vals = [
+    #             f.get("finding_id", ""),
+    #             f.get("compliance_and_summary", ""),  # ← Use the combined field that has proper mapping
+    #             f.get("audit_determination", "Sustained"),
+    #             f.get("questioned_cost_determination", "None"),
+    #             f.get("cap_determination", "Not Applicable"),
+    #         ]
+    #         for c, val in enumerate(vals):
+    #             cell = tbl.cell(r, c)
+    #             _clear_runs(cell.paragraphs[0])
+    #             cell.paragraphs[0].add_run(str(val))
+    #             cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+    #             # ✅ Center align all columns EXCEPT column 1 (compliance_and_summary)
+    #             if c != 1:
+    #                 cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    #             _tight_paragraph(cell.paragraphs[0])
     if findings:
         for r, f in enumerate(findings, start=1):
-            vals = [
-                f.get("finding_id", ""),
-                f.get("compliance_and_summary", ""),  # ← Use the combined field that has proper mapping
-                f.get("audit_determination", "Sustained"),
-                f.get("questioned_cost_determination", "None"),
-                f.get("cap_determination", "Not Applicable"),
-            ]
-            for c, val in enumerate(vals):
+            for c in range(5):
                 cell = tbl.cell(r, c)
                 _clear_runs(cell.paragraphs[0])
-                cell.paragraphs[0].add_run(str(val))
+                
+                # Column-specific formatting
+                if c == 0:  # Finding ID
+                    cell.paragraphs[0].add_run(f.get("finding_id", ""))
+                    cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    
+                elif c == 1:  # Compliance Type - Audit Finding (SPECIAL FORMATTING)
+                    compliance_type = f.get("compliance_type", "")
+                    summary = f.get("summary", "")
+                    
+                    # Add compliance type in BOLD
+                    if compliance_type:
+                        bold_run = cell.paragraphs[0].add_run(compliance_type)
+                        bold_run.bold = True
+                    
+                    # Add hyphen with spaces
+                    if compliance_type and summary:
+                        cell.paragraphs[0].add_run(" - ")
+                    
+                    # Add summary (not bold)
+                    if summary:
+                        cell.paragraphs[0].add_run(summary)
+                    
+                    # Left align this column
+                    cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
+                    
+                elif c == 2:  # Audit Finding Determination
+                    cell.paragraphs[0].add_run(f.get("audit_determination", "Sustained"))
+                    cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    
+                elif c == 3:  # Questioned Cost Determination
+                    cell.paragraphs[0].add_run(f.get("questioned_cost_determination", "None"))
+                    cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    
+                elif c == 4:  # CAP Determination
+                    cell.paragraphs[0].add_run(f.get("cap_determination", "Not Applicable"))
+                    cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                
                 cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
                 _tight_paragraph(cell.paragraphs[0])
     else:
@@ -2174,6 +2255,8 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     })
     # 1) Replace placeholders everywhere (body + headers/footers + nested tables)
     _replace_placeholders_docwide(doc, mapping)
+    _replace_email_with_hyperlink(doc, email)
+
     _email_postfix_cleanup(doc, email)
     #_fix_treasury_email(doc, model.get("treasury_contact_email") or "ORP_SingleAudits@treasury.gov")
     _strip_leading_token_artifacts(doc)
@@ -2958,6 +3041,28 @@ def _fix_treasury_email(doc, email: str):
         if email not in t:
             new_t = re.sub(r"(?i)(please email us at)(\s*)", rf"\1 {email}. ", t, count=1)
             _rewrite_paragraph(target, new_t)
+
+def _replace_email_with_hyperlink(doc, email):
+    """Replace email text with clickable hyperlink."""
+    if not email:
+        return
+    
+    for p in _iter_all_paragraphs_full(doc):
+        text = _para_text(p)
+        
+        # Find paragraphs containing the email
+        if email in text and "email us at" in text.lower():
+            # Split the text around the email
+            parts = text.split(email)
+            
+            if len(parts) == 2:
+                # Clear and rebuild with hyperlink
+                _clear_runs(p)
+                p.add_run(parts[0])  # Text before email
+                _add_hyperlink(p, f"mailto:{email}", email)  # Email as hyperlink
+                p.add_run(parts[1])  # Text after email
+                break
+
 def _strip_leading_token_artifacts(doc):
     pat = re.compile(r"^\s*\$\{[^}]+\}\.?\s*")
     for p in _iter_all_paragraphs(doc):
