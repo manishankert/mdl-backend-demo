@@ -2006,7 +2006,11 @@ def _insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Para
             heading_para.add_run(f"{al} / {name}")
             
             # Add spacing before the header
-            heading_para.paragraph_format.space_before = Pt(12)
+            #heading_para.paragraph_format.space_before = Pt(12)
+            # ✅ KEY FIX: Tight spacing
+            heading_para.paragraph_format.space_before = Pt(12)  # Space from previous table
+            heading_para.paragraph_format.space_after = Pt(0)   # No extra space before table
+            heading_para.paragraph_format.line_spacing = 1.0    # Single line spacing
             
             # Splice heading after 'last'
             heading_el = heading_para._p
