@@ -24,3 +24,10 @@ venv/
 # Data files (if not meant for version control)
 *.sqlite3
 *.db
+__azurite_db_blob__.json
+__azurite_db_blob_extent__.json
+.gitignore
+__azurite_db_queue_extent__.json
+.gitignore
+.DS_Store
+AzuriteConfig
