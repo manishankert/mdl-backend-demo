@@ -2177,6 +2177,21 @@ def _remove_duplicate_program_headers(doc: Document, first_label: Paragraph):
             _remove_paragraph(p)
             break  # Only remove one duplicate
 
+def _fix_questioned_costs_grammar(doc):
+    """Fix 'No questioned cost is' to 'No questioned costs are'."""
+    for p in _iter_all_paragraphs_full(doc):
+        text = _para_text(p)
+        if "No questioned cost is included" in text:
+            new_text = text.replace(
+                "No questioned cost is included in this single audit report",
+                "No questioned costs are included in this single audit report"
+            )
+            if new_text != text:
+                _clear_runs(p)
+                p.add_run(new_text)
+                logging.info("✅ Fixed questioned costs grammar")
+                break
+
 
 def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> bytes:
     """
@@ -2261,6 +2276,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     })
     # 1) Replace placeholders everywhere (body + headers/footers + nested tables)
     _replace_placeholders_docwide(doc, mapping)
+    _fix_questioned_costs_grammar(doc)
     _replace_email_with_hyperlink(doc, email)
 
     _email_postfix_cleanup(doc, email)
@@ -2385,16 +2401,60 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     # ========== FORCE FIX NARRATIVE PARAGRAPH ==========
     correct_auditee = model.get("auditee_name") or model.get("recipient_name") or ""
     correct_auditor = model.get("auditor_name") or ""
-    
+    # ✅ Ensure no "The" in auditee name
+    if correct_auditee.lower().startswith("the "):
+        correct_auditee = correct_auditee[4:].strip()
+    # for p in doc.paragraphs:
+    #     text = _para_text(p)
+    #     if "Treasury has reviewed the single audit report for" in text:
+    #         # Brute force replace the entire sentence
+    #         pattern = r'(Treasury has reviewed the single audit report for )([^,]+)(, prepared by )(.+?)( for the fiscal year)'
+    #         new_text = re.sub(pattern, f"\\1{correct_auditee}\\3{correct_auditor}\\5", text)
+    #         if new_text != text:
+    #             _clear_runs(p)
+    #             p.add_run(new_text)
+    #         break
     for p in doc.paragraphs:
         text = _para_text(p)
         if "Treasury has reviewed the single audit report for" in text:
-            # Brute force replace the entire sentence
-            pattern = r'(Treasury has reviewed the single audit report for )([^,]+)(, prepared by )(.+?)( for the fiscal year)'
-            new_text = re.sub(pattern, f"\\1{correct_auditee}\\3{correct_auditor}\\5", text)
+            # Pattern: "for [NAME], prepared by [AUDITOR] for the fiscal year"
+            # This will match "for The City..." or "for City..." and replace with correct name
+            pattern = r'(Treasury has reviewed the single audit report for )(The |the )?([^,]+)(, prepared by )(.+?)( for the fiscal year)'
+            
+            def replacer(match):
+                return f"{match.group(1)}{correct_auditee}{match.group(4)}{correct_auditor}{match.group(6)}"
+            
+            new_text = re.sub(pattern, replacer, text)
+            
             if new_text != text:
                 _clear_runs(p)
                 p.add_run(new_text)
+                logging.info(f"✅ Fixed narrative: {correct_auditee}")
+            break
+    # ========== END FIX ==========
+    # ========== FIX APPEALS PARAGRAPH ==========
+    for p in doc.paragraphs:
+        text = _para_text(p)
+        if "may appeal Treasury's decision" in text:
+            # Remove "The" from beginning
+            new_text = text
+            
+            # Pattern: "The CITY..." or "The City..." at start
+            new_text = re.sub(
+                r'^(The |THE )',
+                '',
+                new_text
+            )
+            
+            # Replace with correct formatted name
+            # Pattern: [NAME] may appeal
+            pattern = r'^([^,]+)(may appeal)'
+            new_text = re.sub(pattern, f'{correct_auditee} \\2', new_text)
+            
+            if new_text != text:
+                _clear_runs(p)
+                p.add_run(new_text)
+                logging.info(f"✅ Fixed appeals paragraph - removed 'The'")
             break
     # ========== END FIX ==========
     bio = BytesIO()
