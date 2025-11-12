@@ -3144,41 +3144,100 @@ def _fix_treasury_email(doc, email: str):
 #                 p.add_run(parts[1])  # Text after email
 #                 break
 
+# def _replace_email_with_hyperlink(doc, email):
+#     """Replace email text with clickable hyperlink - DEBUG VERSION."""
+#     if not email:
+#         return
+    
+#     email = email.strip()
+#     logging.info(f"🔍 Looking for email: {email}")
+    
+#     for p in _iter_all_paragraphs_full(doc):
+#         text = _para_text(p)
+        
+#         if email in text:
+#             logging.info(f"📧 Found email in: {text[:80]}...")
+            
+#             # Find position
+#             email_pos = text.find(email)
+#             text_before = text[:email_pos]
+#             text_after = text[email_pos + len(email):]
+            
+#             logging.info(f"   Before: '{text_before[-20:]}'")
+#             logging.info(f"   Email: '{email}'")
+#             logging.info(f"   After: '{text_after[:20]}'")
+            
+#             # Rebuild
+#             _clear_runs(p)
+#             if text_before:
+#                 p.add_run(text_before)
+            
+#             hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
+#             p._p.append(hyperlink)
+            
+#             if text_after:
+#                 p.add_run(text_after)
+            
+#             logging.info(f"   ✅ Hyperlink created")
+
 def _replace_email_with_hyperlink(doc, email):
-    """Replace email text with clickable hyperlink - DEBUG VERSION."""
+    """
+    Replace email text with clickable hyperlink.
+    Simpler approach: build new runs in order.
+    """
     if not email:
         return
     
     email = email.strip()
-    logging.info(f"🔍 Looking for email: {email}")
     
     for p in _iter_all_paragraphs_full(doc):
         text = _para_text(p)
         
-        if email in text:
-            logging.info(f"📧 Found email in: {text[:80]}...")
-            
-            # Find position
-            email_pos = text.find(email)
-            text_before = text[:email_pos]
-            text_after = text[email_pos + len(email):]
-            
-            logging.info(f"   Before: '{text_before[-20:]}'")
-            logging.info(f"   Email: '{email}'")
-            logging.info(f"   After: '{text_after[:20]}'")
-            
-            # Rebuild
-            _clear_runs(p)
-            if text_before:
-                p.add_run(text_before)
-            
-            hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
-            p._p.append(hyperlink)
-            
-            if text_after:
-                p.add_run(text_after)
-            
-            logging.info(f"   ✅ Hyperlink created")
+        if email not in text:
+            continue
+        
+        # Find email position
+        email_start = text.find(email)
+        if email_start == -1:
+            continue
+        
+        text_before = text[:email_start]
+        text_after = text[email_start + len(email):]
+        
+        # Clear paragraph
+        p_element = p._p
+        
+        # Remove all runs
+        for child in list(p_element):
+            if child.tag.endswith('}r') or child.tag.endswith('}hyperlink'):
+                p_element.remove(child)
+        
+        # Add text before email
+        if text_before:
+            run1 = OxmlElement('w:r')
+            t1 = OxmlElement('w:t')
+            t1.set(qn('xml:space'), 'preserve')
+            t1.text = text_before
+            run1.append(t1)
+            p_element.append(run1)
+        
+        # Add hyperlink
+        hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
+        p_element.append(hyperlink)
+        
+        # Add text after email
+        if text_after:
+            run2 = OxmlElement('w:r')
+            t2 = OxmlElement('w:t')
+            t2.set(qn('xml:space'), 'preserve')
+            t2.text = text_after
+            run2.append(t2)
+            p_element.append(run2)
+        
+        logging.info(f"✅ Email hyperlink inserted correctly")
+        logging.info(f"   Before: '{text_before[-30:]}'")
+        logging.info(f"   Email: '{email}'")
+        logging.info(f"   After: '{text_after[:30]}'")
 
 def _strip_leading_token_artifacts(doc):
     pat = re.compile(r"^\s*\$\{[^}]+\}\.?\s*")
