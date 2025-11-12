@@ -3123,26 +3123,62 @@ def _fix_treasury_email(doc, email: str):
             new_t = re.sub(r"(?i)(please email us at)(\s*)", rf"\1 {email}. ", t, count=1)
             _rewrite_paragraph(target, new_t)
 
+# def _replace_email_with_hyperlink(doc, email):
+#     """Replace email text with clickable hyperlink."""
+#     if not email:
+#         return
+    
+#     for p in _iter_all_paragraphs_full(doc):
+#         text = _para_text(p)
+        
+#         # Find paragraphs containing the email
+#         if email in text and "email us at" in text.lower():
+#             # Split the text around the email
+#             parts = text.split(email)
+            
+#             if len(parts) == 2:
+#                 # Clear and rebuild with hyperlink
+#                 _clear_runs(p)
+#                 p.add_run(parts[0])  # Text before email
+#                 _add_hyperlink(p, f"mailto:{email}", email)  # Email as hyperlink
+#                 p.add_run(parts[1])  # Text after email
+#                 break
+
 def _replace_email_with_hyperlink(doc, email):
-    """Replace email text with clickable hyperlink."""
+    """Replace email text with clickable hyperlink - DEBUG VERSION."""
     if not email:
         return
+    
+    email = email.strip()
+    logging.info(f"🔍 Looking for email: {email}")
     
     for p in _iter_all_paragraphs_full(doc):
         text = _para_text(p)
         
-        # Find paragraphs containing the email
-        if email in text and "email us at" in text.lower():
-            # Split the text around the email
-            parts = text.split(email)
+        if email in text:
+            logging.info(f"📧 Found email in: {text[:80]}...")
             
-            if len(parts) == 2:
-                # Clear and rebuild with hyperlink
-                _clear_runs(p)
-                p.add_run(parts[0])  # Text before email
-                _add_hyperlink(p, f"mailto:{email}", email)  # Email as hyperlink
-                p.add_run(parts[1])  # Text after email
-                break
+            # Find position
+            email_pos = text.find(email)
+            text_before = text[:email_pos]
+            text_after = text[email_pos + len(email):]
+            
+            logging.info(f"   Before: '{text_before[-20:]}'")
+            logging.info(f"   Email: '{email}'")
+            logging.info(f"   After: '{text_after[:20]}'")
+            
+            # Rebuild
+            _clear_runs(p)
+            if text_before:
+                p.add_run(text_before)
+            
+            hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
+            p._p.append(hyperlink)
+            
+            if text_after:
+                p.add_run(text_after)
+            
+            logging.info(f"   ✅ Hyperlink created")
 
 def _strip_leading_token_artifacts(doc):
     pat = re.compile(r"^\s*\$\{[^}]+\}\.?\s*")
