@@ -97,7 +97,9 @@ def _set_col_widths(table: Table, widths):
 def _tight_paragraph(p: Paragraph):
     pf = p.paragraph_format
     pf.space_before = Pt(0)
-    pf.space_after = Pt(6)
+    #pf.space_after = Pt(6)
+    pf.space_after = Pt(0)  # ✅ Change from Pt(6) to Pt(0)
+    pf.line_spacing = 1.0  
 
 def _as_oxml(el):
     """Return underlying oxml element for Paragraph/Table/raw CT_* safely."""
@@ -2327,7 +2329,12 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             
             # Add the ALN and program name (not bold)
             #label_p.add_run(f"{aln} / {pname}")
-            
+            # After creating label_p:
+            pf = label_p.paragraph_format
+            logging.info(f"Label para - space_before: {pf.space_before}, space_after: {pf.space_after}")
+
+            # After creating table:
+            logging.info(f"Table spacing check")
             # Remove any duplicate headers that follow
             _remove_duplicate_program_headers(doc, label_p)
     except Exception as e:
