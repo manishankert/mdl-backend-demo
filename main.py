@@ -2308,13 +2308,21 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             # Add bold header text
             header_run = label_p.add_run("Assistance Listing Number/Program Name:")
             header_run.bold = True
-            # Remove extra spacing after the header
-            label_p.paragraph_format.space_after = Pt(0)
-            # Add line break
+            # Add a line break (not new paragraph)
             label_p.add_run("\n")
-            
             # Add the ALN and program name (not bold)
             label_p.add_run(f"{aln} / {pname}")
+            # ✅ KEY FIX: Set tight spacing
+            label_p.paragraph_format.space_before = Pt(0)
+            label_p.paragraph_format.space_after = Pt(0)  # No space after paragraph
+            label_p.paragraph_format.line_spacing = 1.0  # Single line spacing
+            # Remove extra spacing after the header
+            #label_p.paragraph_format.space_after = Pt(0)
+            # Add line break
+            #label_p.add_run("\n")
+            
+            # Add the ALN and program name (not bold)
+            #label_p.add_run(f"{aln} / {pname}")
             
             # Remove any duplicate headers that follow
             _remove_duplicate_program_headers(doc, label_p)
