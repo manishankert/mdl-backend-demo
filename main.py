@@ -981,7 +981,7 @@ def render_mdl_html(model: Dict[str, Any]) -> str:
     attention_line = model.get("attention_line")
     period_end_text = model.get("period_end_text", str(model.get("audit_year", "")))
     include_no_qc_line = model.get("include_no_qc_line", True)
-    treasury_contact_email = model.get("treasury_contact_email", "ORP_SingleAudits@treasury.gov")
+    treasury_contact_email = model.get("treasury_contact_email", "ORP_SingleAudits@treasury.gov ")
     address_block = "<br>".join(html.escape(x) for x in address_lines) if address_lines else ""
     attention_block = f"<p><strong>{html.escape(attention_line)}</strong></p>" if attention_line else ""
 
@@ -2272,7 +2272,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     fy_end  = (model.get("period_end_text")
                or str(model.get("audit_year", ""))) or ""
     # Treasury contact email
-    treasury_contact_email = "ORP_SingleAudits@treasury.gov"
+    treasury_contact_email = "ORP_SingleAudits@treasury.gov "
 
     # Map BOTH styles of placeholders used by the template
     mapping = {
@@ -2308,7 +2308,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
 
     # Ensure no None values sneak in
     mapping = {k: (v if v is not None else "") for k, v in mapping.items()}
-    email = (model.get("treasury_contact_email") or "ORP_SingleAudits@treasury.gov").strip()
+    email = (model.get("treasury_contact_email") or "ORP_SingleAudits@treasury.gov ").strip()
 
     mapping.update({
         # bracket style used by template
@@ -2324,7 +2324,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     _email_postfix_cleanup(doc, email)
     _strip_leading_token_artifacts(doc)
     # 4) NOW convert email to hyperlink (after all text manipulation)
-    _replace_email_with_hyperlink(doc, email)
+    #_replace_email_with_hyperlink(doc, email)
 
     #_email_postfix_cleanup(doc, email)
     #_fix_treasury_email(doc, model.get("treasury_contact_email") or "ORP_SingleAudits@treasury.gov")
@@ -3475,7 +3475,7 @@ def _replace_email_with_hyperlink(doc, email):
     
     if replaced_count > 0:
         logging.info(f"✅ Total emails replaced with hyperlinks: {replaced_count}")
-        
+
 
 def _strip_leading_token_artifacts(doc):
     pat = re.compile(r"^\s*\$\{[^}]+\}\.?\s*")
