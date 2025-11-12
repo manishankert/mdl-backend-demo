@@ -3280,69 +3280,122 @@ def _fix_treasury_email(doc, email: str):
 #         logging.info(f"   Email: '{email}'")
 #         logging.info(f"   After: '{text_after[:30]}'")
 
-def _replace_email_with_hyperlink(doc, email):
+# def _replace_email_with_hyperlink(doc, email):
+#     """
+#     Replace email text with clickable hyperlink in proper position.
+#     Ensures proper XML ordering so hyperlink appears in correct location.
+#     """
+#     if not email:
+#         return
+    
+#     email = email.strip()
+    
+#     for p in _iter_all_paragraphs_full(doc):
+#         text = _para_text(p)
+        
+#         # Check if email exists in this paragraph
+#         if email not in text:
+#             continue
+        
+#         # Find the position of the email
+#         email_pos = text.find(email)
+#         if email_pos == -1:
+#             continue
+        
+#         text_before = text[:email_pos]
+#         text_after = text[email_pos + len(email):]
+        
+#         logging.info(f"📧 Found email in paragraph")
+#         logging.info(f"   Before: ...{text_before[-40:]}")
+#         logging.info(f"   Email: {email}")
+#         logging.info(f"   After: {text_after[:40]}...")
+        
+#         # Get paragraph element
+#         p_elem = p._p
+        
+#         # Clear all existing content (runs and hyperlinks)
+#         for child in list(p_elem):
+#             if child.tag.endswith('}r') or child.tag.endswith('}hyperlink') or child.tag.endswith('}bookmarkStart') or child.tag.endswith('}bookmarkEnd'):
+#                 p_elem.remove(child)
+        
+#         # Rebuild in correct order
+#         # 1. Add text before email
+#         if text_before:
+#             run_before = OxmlElement('w:r')
+#             t_before = OxmlElement('w:t')
+#             t_before.set(qn('xml:space'), 'preserve')  # Preserve spaces
+#             t_before.text = text_before
+#             run_before.append(t_before)
+#             p_elem.append(run_before)
+        
+#         # 2. Add hyperlink with email
+#         hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
+#         p_elem.append(hyperlink)
+        
+#         # 3. Add text after email
+#         if text_after:
+#             run_after = OxmlElement('w:r')
+#             t_after = OxmlElement('w:t')
+#             t_after.set(qn('xml:space'), 'preserve')  # Preserve spaces
+#             t_after.text = text_after
+#             run_after.append(t_after)
+#             p_elem.append(run_after)
+        
+#         logging.info(f"   ✅ Rebuilt paragraph with hyperlink in correct position")
+
+
+def _replace_email_with_hyperlink(doc, email: str):
     """
-    Replace email text with clickable hyperlink in proper position.
-    Ensures proper XML ordering so hyperlink appears in correct location.
+    Replace a plain-text email with a clickable hyperlink in-place,
+    keeping the email at its original position within the sentence.
     """
     if not email:
         return
-    
     email = email.strip()
-    
+    if not email:
+        return
+
     for p in _iter_all_paragraphs_full(doc):
         text = _para_text(p)
-        
-        # Check if email exists in this paragraph
-        if email not in text:
+        if not text or email not in text:
             continue
-        
-        # Find the position of the email
-        email_pos = text.find(email)
-        if email_pos == -1:
+
+        # Find email position within this paragraph's full text
+        pos = text.find(email)
+        if pos < 0:
             continue
-        
-        text_before = text[:email_pos]
-        text_after = text[email_pos + len(email):]
-        
-        logging.info(f"📧 Found email in paragraph")
-        logging.info(f"   Before: ...{text_before[-40:]}")
-        logging.info(f"   Email: {email}")
-        logging.info(f"   After: {text_after[:40]}...")
-        
-        # Get paragraph element
+
+        before = text[:pos]
+        after  = text[pos + len(email):]
+
+        # Clear all existing content (runs/hyperlinks/bookmarks)
         p_elem = p._p
-        
-        # Clear all existing content (runs and hyperlinks)
         for child in list(p_elem):
-            if child.tag.endswith('}r') or child.tag.endswith('}hyperlink') or child.tag.endswith('}bookmarkStart') or child.tag.endswith('}bookmarkEnd'):
+            # remove runs, hyperlinks, and bookmarks cleanly
+            tag = child.tag.rsplit('}', 1)[-1]
+            if tag in ('r', 'hyperlink', 'bookmarkStart', 'bookmarkEnd'):
                 p_elem.remove(child)
-        
-        # Rebuild in correct order
-        # 1. Add text before email
-        if text_before:
-            run_before = OxmlElement('w:r')
-            t_before = OxmlElement('w:t')
-            t_before.set(qn('xml:space'), 'preserve')  # Preserve spaces
-            t_before.text = text_before
-            run_before.append(t_before)
-            p_elem.append(run_before)
-        
-        # 2. Add hyperlink with email
+
+        # Helper to append a plain-text run with whitespace preserved
+        def _append_text_run(parent, s: str):
+            if not s:
+                return
+            r = OxmlElement('w:r')
+            t = OxmlElement('w:t')
+            t.set(qn('xml:space'), 'preserve')    # keep spaces exactly
+            t.text = s
+            r.append(t)
+            parent.append(r)
+
+        # 1) text BEFORE the email
+        _append_text_run(p_elem, before)
+
+        # 2) the EMAIL as a hyperlink (mailto:)
         hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
         p_elem.append(hyperlink)
-        
-        # 3. Add text after email
-        if text_after:
-            run_after = OxmlElement('w:r')
-            t_after = OxmlElement('w:t')
-            t_after.set(qn('xml:space'), 'preserve')  # Preserve spaces
-            t_after.text = text_after
-            run_after.append(t_after)
-            p_elem.append(run_after)
-        
-        logging.info(f"   ✅ Rebuilt paragraph with hyperlink in correct position")
 
+        # 3) text AFTER the email
+        _append_text_run(p_elem, after)
 
 def _strip_leading_token_artifacts(doc):
     pat = re.compile(r"^\s*\$\{[^}]+\}\.?\s*")
