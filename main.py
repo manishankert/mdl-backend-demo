@@ -2318,12 +2318,17 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     })
     # 1) Replace placeholders everywhere (body + headers/footers + nested tables)
     _replace_placeholders_docwide(doc, mapping)
+    # 2) Fix questioned costs grammar
     _fix_questioned_costs_grammar(doc)
+    # 3) Run email cleanup BEFORE hyperlink creation
+    _email_postfix_cleanup(doc, email)
+    _strip_leading_token_artifacts(doc)
+    # 4) NOW convert email to hyperlink (after all text manipulation)
     _replace_email_with_hyperlink(doc, email)
 
-    _email_postfix_cleanup(doc, email)
+    #_email_postfix_cleanup(doc, email)
     #_fix_treasury_email(doc, model.get("treasury_contact_email") or "ORP_SingleAudits@treasury.gov")
-    _strip_leading_token_artifacts(doc)
+    # 5) Final cleanups that don't touch text
     _unset_all_caps_everywhere(doc)
     #_fix_narrative_article(doc, auditee, auditor)
 
@@ -3102,8 +3107,13 @@ def _unset_all_caps_everywhere(doc):
                     r.font.all_caps = False
                     r.font.small_caps = False
 
+# def _rewrite_paragraph(p, text):
+#     _clear_runs(p); p.add_run(text)
+
 def _rewrite_paragraph(p, text):
-    _clear_runs(p); p.add_run(text)
+    """Rewrite paragraph text safely."""
+    _clear_runs(p)
+    p.add_run(text)
 
 def _iter_all_paragraphs(doc):
     for p in doc.paragraphs:
@@ -3124,15 +3134,34 @@ def _iter_all_paragraphs_full(doc):
             for p in container.paragraphs:
                 yield p
 
+# def _email_postfix_cleanup(doc, email):
+#     # strip leading bracket/curly tokens at paragraph start; fix ".The" joins
+#     pat_leading = re.compile(r"^\s*(\[\s*treasury_contact_email\s*\]|\$\{treasury_contact_email\})\.?\s*")
+#     for p in _iter_all_paragraphs_full(doc):
+#         t = _para_text(p)
+#         if not t: continue
+#         new = pat_leading.sub("", t)
+#         if email and f"{email}.The" in new:
+#             new = new.replace(f"{email}.The", f"{email}. The")
+#         if new != t:
+#             _rewrite_paragraph(p, new)
+
+
 def _email_postfix_cleanup(doc, email):
-    # strip leading bracket/curly tokens at paragraph start; fix ".The" joins
+    """
+    Strip leading bracket/curly tokens at paragraph start; fix ".The" joins.
+    Safe to run before hyperlink insertion.
+    """
     pat_leading = re.compile(r"^\s*(\[\s*treasury_contact_email\s*\]|\$\{treasury_contact_email\})\.?\s*")
     for p in _iter_all_paragraphs_full(doc):
         t = _para_text(p)
-        if not t: continue
+        if not t:
+            continue
+        
         new = pat_leading.sub("", t)
         if email and f"{email}.The" in new:
             new = new.replace(f"{email}.The", f"{email}. The")
+        
         if new != t:
             _rewrite_paragraph(p, new)
 
