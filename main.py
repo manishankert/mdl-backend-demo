@@ -3373,58 +3373,109 @@ def _fix_treasury_email(doc, email: str):
 #         logging.info(f"   ✅ Rebuilt paragraph with hyperlink in correct position")
 
 
-def _replace_email_with_hyperlink(doc, email: str):
-    """
-    Replace a plain-text email with a clickable hyperlink in-place,
-    keeping the email at its original position within the sentence.
-    """
-    if not email:
-        return
-    email = email.strip()
-    if not email:
-        return
+# def _replace_email_with_hyperlink(doc, email: str):
+#     """
+#     Replace a plain-text email with a clickable hyperlink in-place,
+#     keeping the email at its original position within the sentence.
+#     """
+#     if not email:
+#         return
+#     email = email.strip()
+#     if not email:
+#         return
 
+#     for p in _iter_all_paragraphs_full(doc):
+#         text = _para_text(p)
+#         if not text or email not in text:
+#             continue
+
+#         # Find email position within this paragraph's full text
+#         pos = text.find(email)
+#         if pos < 0:
+#             continue
+
+#         before = text[:pos]
+#         after  = text[pos + len(email):]
+
+#         # Clear all existing content (runs/hyperlinks/bookmarks)
+#         p_elem = p._p
+#         for child in list(p_elem):
+#             # remove runs, hyperlinks, and bookmarks cleanly
+#             tag = child.tag.rsplit('}', 1)[-1]
+#             if tag in ('r', 'hyperlink', 'bookmarkStart', 'bookmarkEnd'):
+#                 p_elem.remove(child)
+
+#         # Helper to append a plain-text run with whitespace preserved
+#         def _append_text_run(parent, s: str):
+#             if not s:
+#                 return
+#             r = OxmlElement('w:r')
+#             t = OxmlElement('w:t')
+#             t.set(qn('xml:space'), 'preserve')    # keep spaces exactly
+#             t.text = s
+#             r.append(t)
+#             parent.append(r)
+
+#         # 1) text BEFORE the email
+#         _append_text_run(p_elem, before)
+
+#         # 2) the EMAIL as a hyperlink (mailto:)
+#         hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
+#         p_elem.append(hyperlink)
+
+#         # 3) text AFTER the email
+#         _append_text_run(p_elem, after)
+
+def _replace_email_with_hyperlink(doc, email):
+    """
+    Replace email text with clickable hyperlink in correct position.
+    """
+    if not email:
+        return
+    
+    email = email.strip()
+    replaced_count = 0
+    
     for p in _iter_all_paragraphs_full(doc):
         text = _para_text(p)
-        if not text or email not in text:
+        
+        if email not in text:
             continue
-
-        # Find email position within this paragraph's full text
-        pos = text.find(email)
-        if pos < 0:
+        
+        parts = text.split(email)
+        
+        if len(parts) < 2:
             continue
-
-        before = text[:pos]
-        after  = text[pos + len(email):]
-
-        # Clear all existing content (runs/hyperlinks/bookmarks)
+        
+        logging.info(f"📧 Found email in: {text[:80]}...")
+        
         p_elem = p._p
+        
+        # Remove only runs and hyperlinks, keep pPr and other elements
         for child in list(p_elem):
-            # remove runs, hyperlinks, and bookmarks cleanly
-            tag = child.tag.rsplit('}', 1)[-1]
-            if tag in ('r', 'hyperlink', 'bookmarkStart', 'bookmarkEnd'):
+            if child.tag.endswith('}r') or child.tag.endswith('}hyperlink'):
                 p_elem.remove(child)
-
-        # Helper to append a plain-text run with whitespace preserved
-        def _append_text_run(parent, s: str):
-            if not s:
-                return
-            r = OxmlElement('w:r')
-            t = OxmlElement('w:t')
-            t.set(qn('xml:space'), 'preserve')    # keep spaces exactly
-            t.text = s
-            r.append(t)
-            parent.append(r)
-
-        # 1) text BEFORE the email
-        _append_text_run(p_elem, before)
-
-        # 2) the EMAIL as a hyperlink (mailto:)
-        hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
-        p_elem.append(hyperlink)
-
-        # 3) text AFTER the email
-        _append_text_run(p_elem, after)
+        
+        # Append new content (pPr stays at the beginning automatically)
+        for i, part in enumerate(parts):
+            if part:
+                run = OxmlElement('w:r')
+                t = OxmlElement('w:t')
+                t.set(qn('xml:space'), 'preserve')
+                t.text = part
+                run.append(t)
+                p_elem.append(run)
+            
+            if i < len(parts) - 1:
+                hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
+                p_elem.append(hyperlink)
+                replaced_count += 1
+        
+        logging.info(f"   ✅ Replaced {len(parts) - 1} email occurrence(s) with hyperlink")
+    
+    if replaced_count > 0:
+        logging.info(f"✅ Total emails replaced with hyperlinks: {replaced_count}")
+        
 
 def _strip_leading_token_artifacts(doc):
     pat = re.compile(r"^\s*\$\{[^}]+\}\.?\s*")
