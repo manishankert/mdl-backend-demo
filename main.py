@@ -2312,9 +2312,9 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
 
     mapping.update({
         # bracket style used by template
-        "[treasury_contact_email]": email,
+        "[treasury_contact_email]": f" {email} ",
         # curly style just in case
-        "${treasury_contact_email}": email,
+        "${treasury_contact_email}": f" {email} "
     })
     # 1) Replace placeholders everywhere (body + headers/footers + nested tables)
     _replace_placeholders_docwide(doc, mapping)
