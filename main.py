@@ -192,10 +192,79 @@ def _from_fac_general(gen: List[Dict[str, Any]]) -> Dict[str, str]:
         "period_end_text": fy_end
     }
 
+# def _cleanup_post_table_narrative(doc, model):
+#     """
+#     Remove the repeated narrative paragraphs that appear after the program table(s):
+#       - Lines starting with the finding id (e.g., '2024-002 – ...')
+#       - Auditor Description..., Auditor Recommendation., Responsible Person:, Corrective Action., Anticipated Completion Date:
+#       - Lines duplicating the raw finding summary text
+#     """
+#     # Collect IDs and summaries to match
+#     finding_ids = set()
+#     summaries = set()
+#     combos = set()
+#     for prog in (model.get("programs") or []):
+#         for f in (prog.get("findings") or []):
+#             fid = (f.get("finding_id") or "").strip()
+#             summ = (f.get("summary") or "").strip()
+#             combo = (f.get("compliance_and_summary") or "").strip()
+#             if fid: finding_ids.add(fid)
+#             if summ: summaries.add(_norm_txt(summ))
+#             if combo: combos.add(_norm_txt(combo))
+
+#     # Regex patterns that match the repeated narrative blocks in the body
+#     starts = [
+#         r"^\d{4}-\d{3}\s*-\s*",                        # e.g., 2024-002 -
+#         r"^\d{4}-\d{3}\s*[––]\s*",                     # e.g., 2024-002 – (en/em dash)
+#         r"^Auditor\s+Description\s+of\s+Condition",    # Auditor Description of Condition...
+#         r"^Auditor\s+Recommendation\.?",               # Auditor Recommendation.
+#         r"^Responsible\s+Person\s*:",                  # Responsible Person:
+#         r"^Corrective\s+Action\.?",                    # Corrective Action.
+#         r"^Anticipated\s+Completion\s+Date\s*:",       # Anticipated Completion Date:
+#         # ✅ NEW: Add patterns for FAC finding text blocks
+#         r"^Federal\s+Agency\s*:",                      # Federal Agency:
+#         r"^Federal\s+Program\s+Title\s*:",             # Federal Program Title:
+#         r"^Assistance\s+Listing\s+Number\s*:",         # Assistance Listing Number:
+#         r"^Federal\s+Award\s+Identification",          # Federal Award Identification Number
+#         r"^Compliance\s+Requirement\s+Affected\s*:",   # Compliance Requirement Affected:
+#         r"^Award\s+Period\s*:",                        # Award Period:
+#         r"^Type\s+of\s+Finding\s*:",                   # Type of Finding:
+#         r"^Recommendation\s*:",                        # Recommendation:
+#         r"^Explanation\s+of\s+disagreement",           # Explanation of disagreement
+#         r"^Action\s+taken\s+in\s+response",            # Action taken in response
+#         r"^Name\s+of\s+the\s+contact\s+person",        # Name of the contact person
+#         r"^Planned\s+completion\s+date",               # Planned completion date
+#         r"^SUSPENSION\s+AND\s+DEBARMENT",              # Headers like "SUSPENSION AND DEBARMENT"
+#         r"^PROCUREMENT",                               # Other compliance type headers
+#     ]
+#     patt = re.compile("|".join(starts), re.IGNORECASE)
+
+#     # Remove paragraphs that match any of the above
+#     for p in list(doc.paragraphs):
+#         t = _norm_txt("".join(r.text for r in p.runs))
+#         if not t:
+#             continue
+
+#         # Exact/contains matches
+#         if any(fid in t for fid in finding_ids):
+#             _remove_paragraph(p); continue
+
+#         if patt.search(t):
+#             _remove_paragraph(p); continue
+
+#         nt = _norm_txt(t)
+#         if any(s and s.lower() in nt.lower() for s in summaries):
+#             _remove_paragraph(p); continue
+
+#         if any(c and c.lower() in nt.lower() for c in combos):
+#             _remove_paragraph(p); continue
+
+
 def _cleanup_post_table_narrative(doc, model):
     """
     Remove the repeated narrative paragraphs that appear after the program table(s):
       - Lines starting with the finding id (e.g., '2024-002 – ...')
+      - Full FAC finding text blocks (Federal Agency, Award Period, etc.)
       - Auditor Description..., Auditor Recommendation., Responsible Person:, Corrective Action., Anticipated Completion Date:
       - Lines duplicating the raw finding summary text
     """
@@ -215,34 +284,73 @@ def _cleanup_post_table_narrative(doc, model):
     # Regex patterns that match the repeated narrative blocks in the body
     starts = [
         r"^\d{4}-\d{3}\s*-\s*",                        # e.g., 2024-002 -
-        r"^\d{4}-\d{3}\s*[–—]\s*",                     # e.g., 2024-002 – (en/em dash)
+        r"^\d{4}-\d{3}\s*[––]\s*",                     # e.g., 2024-002 – (en/em dash)
         r"^Auditor\s+Description\s+of\s+Condition",    # Auditor Description of Condition...
         r"^Auditor\s+Recommendation\.?",               # Auditor Recommendation.
         r"^Responsible\s+Person\s*:",                  # Responsible Person:
         r"^Corrective\s+Action\.?",                    # Corrective Action.
         r"^Anticipated\s+Completion\s+Date\s*:",       # Anticipated Completion Date:
+        # ✅ NEW: Add patterns for FAC finding text blocks
+        r"^Federal\s+Agency\s*:",                      # Federal Agency:
+        r"^Federal\s+Program\s+Title\s*:",             # Federal Program Title:
+        r"^Assistance\s+Listing\s+Number\s*:",         # Assistance Listing Number:
+        r"^Federal\s+Award\s+Identification",          # Federal Award Identification Number
+        r"^Compliance\s+Requirement\s+Affected\s*:",   # Compliance Requirement Affected:
+        r"^Award\s+Period\s*:",                        # Award Period:
+        r"^Type\s+of\s+Finding\s*:",                   # Type of Finding:
+        r"^Recommendation\s*:",                        # Recommendation:
+        r"^Explanation\s+of\s+disagreement",           # Explanation of disagreement
+        r"^Action\s+taken\s+in\s+response",            # Action taken in response
+        r"^Name\s+of\s+the\s+contact\s+person",        # Name of the contact person
+        r"^Planned\s+completion\s+date",               # Planned completion date
+        r"^SUSPENSION\s+AND\s+DEBARMENT",              # Headers like "SUSPENSION AND DEBARMENT"
+        r"^PROCUREMENT",                               # Other compliance type headers
     ]
     patt = re.compile("|".join(starts), re.IGNORECASE)
 
     # Remove paragraphs that match any of the above
+    removed_count = 0
     for p in list(doc.paragraphs):
         t = _norm_txt("".join(r.text for r in p.runs))
         if not t:
             continue
 
+        should_remove = False
+        reason = ""
+
         # Exact/contains matches
         if any(fid in t for fid in finding_ids):
-            _remove_paragraph(p); continue
+            should_remove = True
+            reason = f"contains finding ID"
 
-        if patt.search(t):
-            _remove_paragraph(p); continue
+        elif patt.search(t):
+            should_remove = True
+            reason = "matches FAC narrative pattern"
 
-        nt = _norm_txt(t)
-        if any(s and s.lower() in nt.lower() for s in summaries):
-            _remove_paragraph(p); continue
+        elif any(s and s.lower() in t.lower() for s in summaries):
+            should_remove = True
+            reason = "matches summary"
 
-        if any(c and c.lower() in nt.lower() for c in combos):
-            _remove_paragraph(p); continue
+        elif any(c and c.lower() in t.lower() for c in combos):
+            should_remove = True
+            reason = "matches combo"
+
+        # ✅ NEW: Also check for common ALN patterns (21.027, SLFRP, etc.)
+        elif re.search(r'\b\d{2}\.\d{3}\b', t):  # Matches ALN like 21.027
+            should_remove = True
+            reason = "contains ALN pattern"
+
+        elif re.search(r'\bSLFRP\d+\b', t, re.IGNORECASE):  # Matches award numbers like SLFRP2889
+            should_remove = True
+            reason = "contains SLFRP award number"
+
+        if should_remove:
+            logging.info(f"🗑️  Removing ({reason}): {t[:100]}")
+            _remove_paragraph(p)
+            removed_count += 1
+
+    logging.info(f"✅ Cleanup removed {removed_count} duplicate narrative paragraphs")
+
 
 # def _pluralize_text(doc, total_findings: int):
 #     """
