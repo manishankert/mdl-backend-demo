@@ -2177,26 +2177,26 @@ def _insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Para
         _insert_after(last, tbl_el)
         last = tbl_el
 
-        # Insert CAPs after the table
-        for f in p.get("findings", []):
-            cap_text = (f or {}).get("cap_text")
-            if cap_text:
-                cap_title = doc.add_paragraph()
-                _clear_runs(cap_title)
-                cap_title.add_run(f"Corrective Action Plan – {f.get('finding_id','')}")
+        # # Insert CAPs after the table
+        # for f in p.get("findings", []):
+        #     cap_text = (f or {}).get("cap_text")
+        #     if cap_text:
+        #         cap_title = doc.add_paragraph()
+        #         _clear_runs(cap_title)
+        #         cap_title.add_run(f"Corrective Action Plan – {f.get('finding_id','')}")
                 
-                cap_text_para = doc.add_paragraph()
-                _clear_runs(cap_text_para)
-                cap_text_para.add_run(cap_text)
+        #         cap_text_para = doc.add_paragraph()
+        #         _clear_runs(cap_text_para)
+        #         cap_text_para.add_run(cap_text)
 
-                cap_title_el = cap_title._p
-                cap_text_el = cap_text_para._p
-                cap_title_el.getparent().remove(cap_title_el)
-                cap_text_el.getparent().remove(cap_text_el)
+        #         cap_title_el = cap_title._p
+        #         cap_text_el = cap_text_para._p
+        #         cap_title_el.getparent().remove(cap_title_el)
+        #         cap_text_el.getparent().remove(cap_text_el)
                 
-                _insert_after(last, cap_title_el)
-                _insert_after(cap_title_el, cap_text_el)
-                last = cap_text_el
+        #         _insert_after(last, cap_title_el)
+        #         _insert_after(cap_title_el, cap_text_el)
+        #         last = cap_text_el
 
         # Spacer between programs (if multiple)
         if idx < len(programs_sorted) - 1:
