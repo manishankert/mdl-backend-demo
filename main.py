@@ -2162,12 +2162,9 @@ def _insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Para
             # Add the ALN and program name (not bold)
             heading_para.add_run(f"{al} / {name}")
             
-            # Add spacing before the header
-            #heading_para.paragraph_format.space_before = Pt(12)
-            # ✅ KEY FIX: Tight spacing
-            heading_para.paragraph_format.space_before = Pt(12)  # Space from previous table
-            heading_para.paragraph_format.space_after = Pt(0)   # No extra space before table
-            heading_para.paragraph_format.line_spacing = 1.0    # Single line spacing
+            # ✅ KEY FIX: Tight spacing - no extra space before table
+            _tight_paragraph(heading_para)
+            heading_para.paragraph_format.space_before = Pt(12)  # Space from previous table only
             
             # Splice heading after 'last'
             heading_el = heading_para._p
@@ -2494,14 +2491,8 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             label_p.add_run("\n")
             # Add the ALN and program name (not bold)
             label_p.add_run(f"{aln} / {pname}")
-            # ✅ KEY FIX: Set tight spacing
-            label_p.paragraph_format.space_before = Pt(0)
-            label_p.paragraph_format.space_after = Pt(0)  # No space after paragraph
-            label_p.paragraph_format.line_spacing = 1.0  # Single line spacing
-            # Remove extra spacing after the header
-            #label_p.paragraph_format.space_after = Pt(0)
-            # Add line break
-            #label_p.add_run("\n")
+            # ✅ KEY FIX: Set tight spacing - use _tight_paragraph for consistent removal
+            _tight_paragraph(label_p)
             
             # Add the ALN and program name (not bold)
             #label_p.add_run(f"{aln} / {pname}")
