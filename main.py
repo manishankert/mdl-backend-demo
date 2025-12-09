@@ -293,7 +293,7 @@ def _cleanup_post_table_narrative(doc, model):
         # ✅ NEW: Add patterns for FAC finding text blocks
         r"^Federal\s+Agency\s*:",                      # Federal Agency:
         r"^Federal\s+Program\s+Title\s*:",             # Federal Program Title:
-        r"^Assistance\s+Listing\s+Number\s*:",         # Assistance Listing Number:
+        #r"^Assistance\s+Listing\s+Number\s*:",         # Assistance Listing Number:
         r"^Federal\s+Award\s+Identification",          # Federal Award Identification Number
         r"^Compliance\s+Requirement\s+Affected\s*:",   # Compliance Requirement Affected:
         r"^Award\s+Period\s*:",                        # Award Period:
