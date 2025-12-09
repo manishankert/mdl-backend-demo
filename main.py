@@ -314,6 +314,11 @@ def _cleanup_post_table_narrative(doc, model):
         t = _norm_txt("".join(r.text for r in p.runs))
         if not t:
             continue
+        
+        # ✅ CRITICAL FIX: Skip the program header paragraph
+        if "Assistance Listing Number/Program Name:" in t:
+            logging.info(f"✅ Skipping program header from cleanup: {t[:80]}")
+            continue
 
         should_remove = False
         reason = ""
@@ -336,7 +341,7 @@ def _cleanup_post_table_narrative(doc, model):
             reason = "matches combo"
 
         # ✅ NEW: Also check for common ALN patterns (21.027, SLFRP, etc.)
-        elif re.search(r'\b\d{2}\.\d{3}\b', t):  # Matches ALN like 21.027
+        elif re.search(r'\b\d{2}\.\d{3}\b', t) and "Assistance Listing Number/Program Name" not in t:  # Matches ALN like 21.027
             should_remove = True
             reason = "contains ALN pattern"
 
