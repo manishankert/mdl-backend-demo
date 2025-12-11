@@ -2131,6 +2131,9 @@ def _insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Para
     if text.strip():
         anchor_para.add_run(text)
 
+    # ✅ FIX: Remove extra space after anchor paragraph (space above Findings table)
+    _tight_paragraph(anchor_para)
+
     # Delete any placeholder table immediately following the anchor
     _delete_immediate_next_table(anchor_para)
 
