@@ -2653,9 +2653,13 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
 
         logging.info(f"✅ Narrative fixed + bolded auditee: {correct_auditee}")
         break
+
+    
     # ========== END FIX ==========
 
-
+    # Adjust grammar depending on number of findings
+    apply_mdl_grammar(doc, total_findings)
+    
     doc.save(bio)
     return bio.getvalue()
 
@@ -3720,6 +3724,43 @@ from io import BytesIO
 from docx import Document
 from docx.shared import Pt
 
+def fix_mdl_grammar_text(text: str, n_findings: int) -> str:
+    singular = (n_findings == 1)
+    be = "is" if singular else "are"
+
+    # NBSP -> space
+    out = text.replace("\u00A0", " ")  
+
+    # If tokens are still present, resolve them
+    out = re.sub(r"\[\s*is\s*/\s*are\s*\]", be, out, flags=re.IGNORECASE)
+    out = re.sub(r"\[\s*The\s*\]", "The" if singular else "", out, flags=re.IGNORECASE)
+    out = re.sub(r"\(s\)", "" if singular else "s", out)
+    out = re.sub(r"\bviolate\s*\(s\)\b", "violates" if singular else "violate", out, flags=re.IGNORECASE)
+    out = re.sub(r"\bappear\s*\(s\)\b",  "appears"  if singular else "appear",  out, flags=re.IGNORECASE)
+    out = re.sub(r"\baddress\s*\(es\)\b", "addresses" if singular else "address", out, flags=re.IGNORECASE)
+    out = re.sub(r"\baddresses\s*\(es\)\b", "addresses", out, flags=re.IGNORECASE)
+    out = re.sub(r"\(es\)", "", out)
+
+
+    # FIX the remaining grammar
+    # Insert missing "is/are" after these subjects if it's missing
+    out = re.sub(r"\b(The audit finding(?:s)?)\s+(?=sustained\b)", rf"\1 {be} ", out, flags=re.IGNORECASE)
+    out = re.sub(r"\b(The CAP(?:s)?)\s*,?\s*if implemented,\s+(?!is\b|are\b)", rf"\1, if implemented, {be} ", out, flags=re.IGNORECASE)
+    out = re.sub(r"\b(the corrective action(?:s)?)\s+(?=subject\b)", rf"\1 {be} ", out, flags=re.IGNORECASE)
+
+    # Fix singular verb agreement when subject is singular
+    if singular:
+        out = re.sub(r"\bissue\s+violate\b", "issue violates", out, flags=re.IGNORECASE)
+        out = re.sub(r"\bfinding\s+appear\b", "finding appears", out, flags=re.IGNORECASE)
+        out = re.sub(r"\bCAP,\s*if implemented,\s*is responsive to the audit finding,\s*address\b",
+                     "CAP, if implemented, is responsive to the audit finding, addresses",
+                     out, flags=re.IGNORECASE)
+
+    # Cleanup spacing/punctuation
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"\s+([,.;:])", r"\1", out)
+    return out
+
 def _force_paragraph_font_size(p, size_pt=12):
     for r in p.runs:
         r.font.size = Pt(size_pt)
@@ -3803,7 +3844,56 @@ def postprocess_docx(doc_bytes: bytes, model: dict) -> bytes:
     out = BytesIO()
     doc.save(out)
     return out.getvalue()
- 
+
+# Grammar map for findings
+def fix_mdl_template_grammar(text: str, n_findings: int) -> str:
+    singular = (n_findings == 1)
+
+    out = text
+
+    out = out.replace("[is/are]", "is" if singular else "are")
+    out = out.replace("[The]", "The" if singular else "")
+
+    out = out.replace("(s)", "" if singular else "s")
+
+    out = out.replace("violate(s)", "violates" if singular else "violate")
+    out = out.replace("appear(s)", "appears" if singular else "appear")
+
+    out = out.replace("address(es)", "addresses" if singular else "address")
+    out = re.sub(r"\baddresses\s*\(es\)\b", "addresses", out, flags=re.IGNORECASE)
+
+    # General leftover cleanup for (es) if it survived
+    out = re.sub(r"\(es\)", "", out)
+
+    # cleanup
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"\s+([,.;:])", r"\1", out)
+
+    return out
+
+def apply_mdl_grammar(doc, n_findings: int):
+    def rewrite_paragraph(p):
+        old = p.text
+        new = fix_mdl_grammar_text(old, n_findings)
+        if new != old:
+            for r in p.runs[::-1]:
+                p._p.remove(r._r)
+            p.add_run(new)
+
+            # FORCE font size to 12pt for entire paragraph
+            _force_paragraph_font_size(p, 12)
+
+    # body
+    for p in doc.paragraphs:
+        rewrite_paragraph(p)
+
+    # tables
+    for t in doc.tables:
+        for row in t.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    rewrite_paragraph(p)
+
 # ===================================== END DOC EDITING =====================================                  
 
 @app.post("/build-mdl-docx-auto")
