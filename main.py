@@ -2558,6 +2558,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     # ✅ Ensure no "The" in auditee name
     if correct_auditee.lower().startswith("the "):
         correct_auditee = correct_auditee[4:].strip()
+    # Ensure auditee name is bold
     # for p in doc.paragraphs:
     #     text = _para_text(p)
     #     if "Treasury has reviewed the single audit report for" in text:
@@ -2612,6 +2613,49 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             break
     # ========== END FIX ==========
     bio = BytesIO()
+
+    # ========== FORCE FIX NARRATIVE PARAGRAPH (FINAL, BOLD-SAFE) ==========
+    correct_auditee = model.get("auditee_name") or model.get("recipient_name") or ""
+    correct_auditor = model.get("auditor_name") or ""
+
+    # Strip leading "The "
+    if correct_auditee.lower().startswith("the "):
+        correct_auditee = correct_auditee[4:].strip()
+
+    for p in _iter_all_paragraphs_in_container(doc):
+        text = _para_text(p)
+
+        if "Treasury has reviewed the single audit report for" not in text:
+            continue
+
+        pattern = (
+            r'(Treasury has reviewed the single audit report for )'
+            r'(The |the )?(.+?)'
+            r'(, prepared by )(.+?)'
+            r'( for the fiscal year)'
+        )
+
+        m = re.search(pattern, text)
+        if not m:
+            continue
+
+        _clear_runs(p)
+
+        # Build paragraph with run-level formatting
+        p.add_run(m.group(1))                 # fixed intro text
+
+        r = p.add_run(correct_auditee)        # auditee
+        r.bold = True                         # ✅ GUARANTEED bold
+
+        p.add_run(m.group(4))                 # ", prepared by "
+        p.add_run(correct_auditor)            # auditor
+        p.add_run(m.group(6))                 # trailing text
+
+        logging.info(f"✅ Narrative fixed + bolded auditee: {correct_auditee}")
+        break
+    # ========== END FIX ==========
+
+
     doc.save(bio)
     return bio.getvalue()
 
@@ -3669,6 +3713,99 @@ def _set_font_size_to_12(doc):
                 for run in p.runs:
                     run.font.size = Pt(12)
 
+# ===================================== BEGIN DOC EDITING =====================================   
+
+import re
+from io import BytesIO
+from docx import Document
+from docx.shared import Pt
+
+def _force_paragraph_font_size(p, size_pt=12):
+    for r in p.runs:
+        r.font.size = Pt(size_pt)
+
+def _clear_runs(p):
+    for r in p.runs[::-1]:
+        p._p.remove(r._r)
+
+def postprocess_docx(doc_bytes: bytes, model: dict) -> bytes:
+    bio = BytesIO(doc_bytes)
+    doc = Document(bio)
+
+    correct_auditee = (model.get("auditee_name") or model.get("recipient_name") or "").strip()
+    if correct_auditee.lower().startswith("the "):
+        correct_auditee = correct_auditee[4:].strip()
+
+    date_text = (model.get("fy_end_text") or model.get("fy_end_date") or model.get("fiscal_year_end") or "").strip()
+
+    for p in doc.paragraphs:
+        text = p.text
+        if "Treasury has reviewed the single audit report for" not in text:
+            continue
+
+        # Remove leading "the" before the auditee in the sentence
+        text = re.sub(
+            r'(Treasury has reviewed the single audit report for )the\s+',
+            r'\1',
+            text,
+            flags=re.IGNORECASE
+)
+        # Find the date in the paragraph
+        date_in_doc = None
+        if date_text and date_text in text:
+            date_in_doc = date_text
+        else:
+            m = re.search(r'([A-Za-z]+ \d{1,2}, \d{4})', text)
+            if m:
+                date_in_doc = m.group(1)
+
+        _clear_runs(p)
+
+        # rebuild auditee and date with two bold runs
+        if correct_auditee and date_in_doc and (correct_auditee in text) and (date_in_doc in text):
+            # Split around auditee first
+            pre_a, rest = text.split(correct_auditee, 1)
+            # Then split the remaining text around date
+            pre_d, post_d = rest.split(date_in_doc, 1)
+
+            p.add_run(pre_a)
+            r1 = p.add_run(correct_auditee)
+            r1.bold = True
+
+            p.add_run(pre_d)
+            r2 = p.add_run(date_in_doc)
+            r2.bold = True
+
+            p.add_run(post_d)
+        elif correct_auditee and (correct_auditee in text):
+            # Fallback: bold only auditee
+            pre, post = text.split(correct_auditee, 1)
+            p.add_run(pre)
+            r = p.add_run(correct_auditee)
+            r.bold = True
+            p.add_run(post)
+        elif date_in_doc and (date_in_doc in text):
+            # Fallback: bold only date
+            pre, post = text.split(date_in_doc, 1)
+            p.add_run(pre)
+            r = p.add_run(date_in_doc)
+            r.bold = True
+            p.add_run(post)
+        else:
+            # Fallback: just keep text
+            p.add_run(text)
+
+        # FORCE font size to 12pt for entire paragraph
+        _force_paragraph_font_size(p, 12)
+
+        break
+
+    out = BytesIO()
+    doc.save(out)
+    return out.getvalue()
+ 
+# ===================================== END DOC EDITING =====================================                  
+
 @app.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildAuto):
     try:
@@ -3955,6 +4092,10 @@ def build_mdl_docx_auto(req: BuildAuto):
         # 4) Build DOCX (unchanged except variable names)
         try:
             data = build_docx_from_template(mdl_model, template_path=template_path)
+
+            # ✅ Post-process the generated docx bytes AFTER everything else
+            data = postprocess_docx(data, mdl_model)
+
         except HTTPException as e:
             return {"ok": False, "message": f"Template error: {e.detail}"}
         except Exception as e:
