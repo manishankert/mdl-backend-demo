@@ -916,6 +916,7 @@ def _basic_html_to_docx(doc: Document, html_str: str):
             first_is_header = any(c.name == "th" for c in first_cells)
 
             tbl = doc.add_table(rows=len(rows), cols=cols)
+
             try:
                 tbl.style = "Table Grid"
             except Exception:
@@ -925,7 +926,8 @@ def _basic_html_to_docx(doc: Document, html_str: str):
             sect = doc.sections[0]
             content_width = sect.page_width - sect.left_margin - sect.right_margin
             col_w = int(content_width / cols)
-            _set_col_widths(tbl, [col_w]*cols)
+            if cols != 5:
+                _set_col_widths(tbl, [col_w]*cols)
 
             for r_idx, tr in enumerate(rows):
                 cells = tr.find_all(["th","td"], recursive=False)
@@ -940,16 +942,18 @@ def _basic_html_to_docx(doc: Document, html_str: str):
                         _apply_inline_formatting(p, cells[c_idx])
                     else:
                         p.text = ""
-                    _tight_paragraph(p)
+                    #_tight_paragraph(p)
                     cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
 
             if first_is_header:
                 for c in tbl.rows[0].cells:
-                    _shade_cell(c, "E7E6E6")
+                    #_shade_cell(c, "E7E6E6")
                     for r in c.paragraphs[0].runs:
                         r.bold = True
                     c.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
             continue
+            
+            
 
         if tag in ("div","section","article"):
             p = doc.add_paragraph()
@@ -1906,7 +1910,7 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
         run = cell.paragraphs[0].add_run(h)
         run.bold = True  # ✅ Make header text bold
         #cell.paragraphs[0].add_run(h)
-        _shade_cell(cell, "E7E6E6")
+        #_shade_cell(cell, "E7E6E6")
         cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
         _tight_paragraph(cell.paragraphs[0])
@@ -1956,6 +1960,7 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
                     
                     # Add summary (not bold)
                     if summary:
+                        cell.paragraphs[0].add_run("\n")
                         cell.paragraphs[0].add_run(summary)
                     
                     # Left align this column
@@ -1974,12 +1979,33 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
                 
                 cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
-                _tight_paragraph(cell.paragraphs[0])
+                #_tight_paragraph(cell.paragraphs[0])
+        
     else:
         cell = tbl.cell(1, 0)
         _clear_runs(cell.paragraphs[0])
         cell.paragraphs[0].add_run("—")
+    
+    # FORMAT START
+    
+    set_table_cell_margins(tbl, top_in=0.00, bottom_in=0.00, left_in=0.06, right_in=0.06)
 
+    # ---- Program table formatting (ONLY if 5 columns) ----
+    set_table_preferred_width_and_indent(tbl, width_in=6.25, indent_in=0.05)
+
+    for r in tbl.rows:
+        set_row_height_and_allow_break(r, height_in=0.49, allow_break_across_pages=True)
+
+    set_table_column_widths(tbl, [0.83, 1.59, 1.2, 1.44, 1.19])
+    # ---- end program table formatting ----
+
+    # SPACING MUST BE LAST so nothing overwrites it
+    apply_program_table_spacing(tbl)
+
+    set_table_bold_borders(tbl, size=12)
+
+    # END FORMAT
+            
     return tbl
 
 # def _insert_program_tables_at_anchor(doc: Document, anchor_para: Paragraph, programs: List[Dict[str, Any]]):
@@ -2264,7 +2290,8 @@ def _find_para_by_contains(doc: Document, needle: str) -> Optional[Paragraph]:
                 return p
     return None
 
-# ✅ ADD this new simple function:
+LOWERCASE_WORDS = {"and", "of", "the", "for", "to", "in", "on", "at", "by", "with", "from"}
+
 def _format_name_standard_case(name: str) -> str:
     """
     Format name in standard title case, removing 'The' article if present.
@@ -2279,8 +2306,21 @@ def _format_name_standard_case(name: str) -> str:
     if clean.lower().startswith("the "):
         clean = clean[4:].strip()
     
-    # Convert to title case
-    return _title_case(clean)
+    
+    # If input is ALL CAPS (or mostly caps), normalize first
+    letters = [ch for ch in clean if ch.isalpha()]
+    if letters and sum(ch.isupper() for ch in letters) / len(letters) > 0.8:
+        clean = clean.lower()
+
+    titled = _title_case(clean)
+
+    # Lowercase connector words unless first word
+    parts = titled.split(" ")
+    for i, w in enumerate(parts):
+        if i > 0 and w.lower() in LOWERCASE_WORDS:
+            parts[i] = w.lower()
+
+    return " ".join(parts)
 
 # def _remove_duplicate_program_headers(doc: Document, first_label: Paragraph):
 #     """
@@ -2512,6 +2552,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         pass
     #_insert_program_tables_at_anchor(doc, anchor, programs)
     _insert_program_tables_at_anchor_no_headers(doc, anchor, programs)
+
     # Remove duplicate narrative blocks under the table
     # Remove duplicate narrative that appears below the table
     try:
@@ -3723,6 +3764,162 @@ import re
 from io import BytesIO
 from docx import Document
 from docx.shared import Pt
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Inches
+from docx.shared import Pt
+
+def set_table_bold_borders(tbl, size=12, color="000000"):
+    tblPr = tbl._tbl.tblPr
+    if tblPr is None:
+        tblPr = OxmlElement("w:tblPr")
+        tbl._tbl.insert(0, tblPr)
+
+    tblBorders = tblPr.find(qn("w:tblBorders"))
+    if tblBorders is None:
+        tblBorders = OxmlElement("w:tblBorders")
+        tblPr.append(tblBorders)
+
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        border = tblBorders.find(qn(f"w:{edge}"))
+        if border is None:
+            border = OxmlElement(f"w:{edge}")
+            tblBorders.append(border)
+
+        border.set(qn("w:val"), "single")
+        border.set(qn("w:sz"), str(size))   # “bold”
+        border.set(qn("w:color"), color)
+
+def set_table_cell_margins(tbl, top_in=0.06, bottom_in=0.06, left_in=0.06, right_in=0.06):
+    """Adds internal cell padding for the whole table (Word: tblCellMar)."""
+    def twips(inches: float) -> str:
+        return str(int(round(inches * 1440)))
+
+    tblPr = tbl._tbl.tblPr
+    if tblPr is None:
+        tblPr = OxmlElement("w:tblPr")
+        tbl._tbl.insert(0, tblPr)
+
+    cellMar = tblPr.find(qn("w:tblCellMar"))
+    if cellMar is None:
+        cellMar = OxmlElement("w:tblCellMar")
+        tblPr.append(cellMar)
+
+    for side, val in (("top", top_in), ("bottom", bottom_in), ("left", left_in), ("right", right_in)):
+        node = cellMar.find(qn(f"w:{side}"))
+        if node is None:
+            node = OxmlElement(f"w:{side}")
+            cellMar.append(node)
+        node.set(qn("w:w"), twips(val))
+        node.set(qn("w:type"), "dxa")
+
+def _set_cell_paragraph_spacing_before(cell, before_pt: float):
+    
+    #Apply spacing-before to ALL paragraphs in a cell.
+    for p in cell.paragraphs:
+        p.paragraph_format.space_before = Pt(before_pt)
+
+def apply_program_table_spacing(tbl):
+    # Header row spacing-before = 3.8pt for all header cells
+    header_row = tbl.rows[0]
+    for cell in header_row.cells:
+        _set_cell_paragraph_spacing_before(cell, 3.8)
+
+    # Subsequent rows: per-column spacing-before
+    col_before_pts = [10.0, 0.0, 10.0, 3.8, 10.0]  # cols 1..5
+
+    for r_i in range(1, len(tbl.rows)):
+        row = tbl.rows[r_i]
+        for c_i, before_pt in enumerate(col_before_pts):
+            _set_cell_paragraph_spacing_before(row.cells[c_i], before_pt)
+
+
+def _twips_from_inches(inches: float) -> int:
+    return int(round(inches * 1440))
+
+def set_table_preferred_width_and_indent(table, width_in=6.25, indent_in=0.05):
+    # Disable autofit so Word respects widths
+    table.autofit = False
+
+    tbl = table._tbl
+    tblPr = tbl.tblPr
+    if tblPr is None:
+        tblPr = OxmlElement("w:tblPr")
+        tbl.insert(0, tblPr)
+
+    # Preferred table width
+    tblW = tblPr.find(qn("w:tblW"))
+    if tblW is None:
+        tblW = OxmlElement("w:tblW")
+        tblPr.append(tblW)
+    tblW.set(qn("w:type"), "dxa")
+    tblW.set(qn("w:w"), str(_twips_from_inches(width_in)))
+
+    # Table indent from left
+    tblInd = tblPr.find(qn("w:tblInd"))
+    if tblInd is None:
+        tblInd = OxmlElement("w:tblInd")
+        tblPr.append(tblInd)
+    tblInd.set(qn("w:type"), "dxa")
+    tblInd.set(qn("w:w"), str(_twips_from_inches(indent_in)))
+
+def set_row_height_and_allow_break(row, height_in=0.48, allow_break_across_pages=True):
+    tr = row._tr
+    trPr = tr.get_or_add_trPr()
+
+    trHeight = trPr.find(qn("w:trHeight"))
+    if trHeight is None:
+        trHeight = OxmlElement("w:trHeight")
+        trPr.append(trHeight)
+
+    trHeight.set(qn("w:val"), str(_twips_from_inches(height_in)))
+    trHeight.set(qn("w:hRule"), "atLeast")  # allows taller rows when needed
+
+    cantSplit = trPr.find(qn("w:cantSplit"))
+    if allow_break_across_pages:
+        if cantSplit is not None:
+            trPr.remove(cantSplit)
+    else:
+        if cantSplit is None:
+            trPr.append(OxmlElement("w:cantSplit"))
+
+    # Row height (exact)
+    trHeight = trPr.find(qn("w:trHeight"))
+    if trHeight is None:
+        trHeight = OxmlElement("w:trHeight")
+        trPr.append(trHeight)
+    trHeight.set(qn("w:val"), str(_twips_from_inches(height_in)))
+    trHeight.set(qn("w:hRule"), "atLeast")
+
+    # Allow row to break across pages:
+    # Word uses <w:cantSplit/> to PREVENT breaking. So remove it if present.
+    cantSplit = trPr.find(qn("w:cantSplit"))
+    if allow_break_across_pages:
+        if cantSplit is not None:
+            trPr.remove(cantSplit)
+    else:
+        if cantSplit is None:
+            cantSplit = OxmlElement("w:cantSplit")
+            trPr.append(cantSplit)
+
+def set_cell_preferred_width(cell, width_in: float):
+    tcPr = cell._tc.get_or_add_tcPr()
+    tcW = tcPr.find(qn("w:tcW"))
+    if tcW is None:
+        tcW = OxmlElement("w:tcW")
+        tcPr.append(tcW)
+    tcW.set(qn("w:type"), "dxa")
+    tcW.set(qn("w:w"), str(_twips_from_inches(width_in)))
+
+def set_table_column_widths(table, col_widths_in):
+    # col_widths_in: list[float] length == number of cols
+    for row in table.rows:
+        for i, w in enumerate(col_widths_in):
+            # python-docx visible width
+            row.cells[i].width = Inches(w)
+            # Word preferred width
+            set_cell_preferred_width(row.cells[i], w)
+
 
 def fix_mdl_grammar_text(text: str, n_findings: int) -> str:
     singular = (n_findings == 1)
@@ -4135,7 +4332,7 @@ def build_mdl_docx_auto(req: BuildAuto):
 
         # ✅ NEW CODE - Use standard case everywhere, no "The" article:
         recipient_formatted = _format_name_standard_case(raw_auditee)
-        auditor_formatted = _format_name_standard_case(raw_auditor)
+        auditor_formatted = raw_auditor
         header_overrides = {
             # recipient & period end
             "recipient_name": recipient_formatted,
@@ -4153,7 +4350,7 @@ def build_mdl_docx_auto(req: BuildAuto):
             "auditee_name": recipient_formatted,
             # POC (title case name + title)
             "poc_name": _title_case(req.poc_name or fac_defaults.get("poc_name")),
-            "poc_title": _title_case(req.poc_title or fac_defaults.get("poc_title")),
+            "poc_title": req.poc_title or fac_defaults.get("poc_title"),
         }
 
         # apply non-empty values only
