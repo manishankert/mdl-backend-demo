@@ -3768,6 +3768,72 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches
 from docx.shared import Pt
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
+
+def add_hyperlink(paragraph, text, url, bold=False, font_pt=12):
+    """
+    Add a clickable hyperlink to a paragraph.
+    """
+    part = paragraph.part
+    r_id = part.relate_to(url, RT.HYPERLINK, is_external=True)
+
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), r_id)
+
+    run = OxmlElement("w:r")
+    rPr = OxmlElement("w:rPr")
+
+    # Style like a normal hyperlink (blue + underline)
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), "0000FF")
+    rPr.append(color)
+
+    u = OxmlElement("w:u")
+    u.set(qn("w:val"), "single")
+    rPr.append(u)
+
+    if bold:
+        b = OxmlElement("w:b")
+        rPr.append(b)
+
+    # FORCE FONT SIZE for hyperlink run
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), str(int(font_pt * 2)))
+    rPr.append(sz)
+
+    szCs = OxmlElement("w:szCs")
+    szCs.set(qn("w:val"), str(int(font_pt * 2)))
+    rPr.append(szCs)
+
+    run.append(rPr)
+
+    t = OxmlElement("w:t")
+    t.text = text
+    run.append(t)
+
+    hyperlink.append(run)
+    paragraph._p.append(hyperlink)
+
+def replace_email_with_mailto_link(p, email: str):
+    """Replace occurrences of the email in paragraph text with a clickable mailto hyperlink."""
+    if email not in p.text:
+        return False
+
+    full = p.text
+    parts = full.split(email)
+
+    _clear_runs(p)
+
+    # rebuild: text + hyperlink + text (+ possible repeats)
+    for i, chunk in enumerate(parts):
+        if chunk:
+            p.add_run(chunk)
+        if i < len(parts) - 1:
+            add_hyperlink(p, email, f"mailto:{email}", font_pt=12)
+
+    return True
+
+
 
 def set_table_bold_borders(tbl, size=12, color="000000"):
     tblPr = tbl._tbl.tblPr
@@ -3970,6 +4036,8 @@ def postprocess_docx(doc_bytes: bytes, model: dict) -> bytes:
     bio = BytesIO(doc_bytes)
     doc = Document(bio)
 
+    email = model.get("treasury_contact_email", "ORP_SingleAudits@treasury.gov")
+
     correct_auditee = (model.get("auditee_name") or model.get("recipient_name") or "").strip()
     if correct_auditee.lower().startswith("the "):
         correct_auditee = correct_auditee[4:].strip()
@@ -4033,10 +4101,15 @@ def postprocess_docx(doc_bytes: bytes, model: dict) -> bytes:
             # Fallback: just keep text
             p.add_run(text)
 
-        # FORCE font size to 12pt for entire paragraph
         _force_paragraph_font_size(p, 12)
 
         break
+
+    #hyperlink treasury email everywhere in the doc
+    for p in doc.paragraphs:
+        changed = replace_email_with_mailto_link(p, email)
+        if changed:
+            _force_paragraph_font_size(p, 12)
 
     out = BytesIO()
     doc.save(out)
