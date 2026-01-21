@@ -1,73 +1,537 @@
-"""
-MDL Generator - Complete Implementation Based on Template Comments
-
-Requirements extracted from 40 comments in the template document:
-
-FIELD REQUIREMENTS:
-1. Current Date - Format: "Month DD, YYYY" (e.g., December 12, 2025)
-2. Recipient Name - Standard case (not ALL CAPS), from [auditee_name]
-   - Address block: WITHOUT "The" prefix
-   - Narrative: WITH "The" prefix
-3. EIN - Format: XX-XXXXXXX (with dash), from [auditee_ein]
-4. Street Address - Standard case, from [auditee_address_line_1]
-5. City, State, Zip - Standard case, from [auditee_city], [auditee_state], [auditee_zip]
-6. Point of Contact - Standard case, from [auditee_contact_name], [auditee_contact_title]
-7. Fiscal Year End Date - Format: "Month Day, Year", from [fy_end_date]
-8. Auditor Name - Add "the" prefix in narrative, standard case
-
-PLURALIZATION (based on total finding count):
-- is/are, finding/findings, issue/issues, violates/violate, CAP/CAPs, corrective action/actions
-
-TABLE REQUIREMENTS:
-- One table per program (ALN)
-- Tables in ALN order (21.023, then 21.026, then 21.027, etc.)
-- Format: [ALN]/ [Program Name] ([Acronym])
-
-FINDING REQUIREMENTS:
-- Finding Number: Reference number from SF-SAC
-- Repeat Finding: If [is_repeat_finding]=Y, add "Repeat of [prior_finding_ref_numbers]"
-- Compliance Type: Mapped from [type_requirement] letter code
-- Finding Summary: Matched from standardized list
-- Audit Finding Determination: "Sustained"
-- Questioned Cost: "Questioned Cost:\nNone\nDisallowed Cost:\nNone"
-- CAP Determination: "Accepted" if CAP exists, else "Not Applicable"
-"""
-
-import os
-import re
-import logging
-from io import BytesIO
+# main.py
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, Tuple
-from dataclasses import dataclass, field
-
-import requests
+from typing import List, Dict, Any, Optional, Tuple
+from io import BytesIO
+from urllib.parse import quote
+import os, re, base64, html, requests
+from lxml import etree
+import os, openpyxl
+from docx.oxml.ns import qn
+import re
+import json
+# DOCX / HTML
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor
+from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_ALIGN_VERTICAL
-from docx.oxml.ns import qn
+from docx.enum.style import WD_STYLE_TYPE
+from docx.text.paragraph import Paragraph
+from docx.table import Table
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from bs4 import BeautifulSoup
+from html2docx import HTML2Docx
+import os, json, requests
+import logging
+logging.basicConfig(level=logging.INFO)
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
 
+from mdl_helpers import (
+    finding_summaries_list,
+    finding_types,
+    aln_program_acronym,
+    _combine_comp_summary,   # updated function
+    map_compliance_type,
+    classify_top_category,   # OpenAI call (user sets OPENAI_API_KEY)
+)
+# Azure
+from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas
 
-def add_hyperlink(paragraph, url: str, text: str, color: str = "0000FF", underline: bool = True):
+# ------------------------------------------------------------------------------
+# FastAPI app
+# ------------------------------------------------------------------------------
+app = FastAPI(title="MDL DOCX Builder")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ------------------------------------------------------------------------------
+# Environment
+# ------------------------------------------------------------------------------
+FAC_BASE = os.getenv("FAC_API_BASE", "https://api.fac.gov")
+FAC_KEY  = os.getenv("FAC_API_KEY")
+
+AZURE_CONTAINER = os.getenv("AZURE_BLOB_CONTAINER", "mdl-output")
+AZURE_CONN_STR  = os.getenv("AZURE_STORAGE_CONNECTION_STRING")  # optional
+AZURITE_SAS_VERSION = os.getenv("AZURITE_SAS_VERSION", "2021-08-06")
+
+LOCAL_SAVE_DIR = os.getenv("LOCAL_SAVE_DIR", "./_out")
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
+
+MDL_TEMPLATE_PATH = os.getenv("MDL_TEMPLATE_PATH")
+
+# ------------------------------------------------------------------------------
+# Utilities
+# ------------------------------------------------------------------------------
+def sanitize(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", name or "").strip("_")
+
+def _short(s: Optional[str], limit: int = 900) -> str:
+    if not s:
+        return ""
+    s = re.sub(r"\s+", " ", s.strip())
+    return (s[: limit - 1] + "…") if len(s) > limit else s
+
+def _norm_ref(x: Optional[str]) -> str:
+    return re.sub(r"\s+", "", (x or "")).upper()
+
+def _shade_cell(cell, hex_fill="E7E6E6"):
+    tcPr = cell._tc.get_or_add_tcPr()
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:fill"), hex_fill)
+    tcPr.append(shd)
+
+def _set_col_widths(table: Table, widths):
+    for col_idx, w in enumerate(widths):
+        for cell in table.columns[col_idx].cells:
+            cell.width = w
+
+def _tight_paragraph(p: Paragraph):
+    pf = p.paragraph_format
+    pf.space_before = Pt(0)
+    #pf.space_after = Pt(6)
+    pf.space_after = Pt(0)  # ✅ Change from Pt(6) to Pt(0)
+    pf.line_spacing = 1.0  
+
+def _as_oxml(el):
+    """Return underlying oxml element for Paragraph/Table/raw CT_* safely."""
+    if hasattr(el, "_p"):   # Paragraph
+        return el._p
+    if hasattr(el, "_tbl"): # Table
+        return el._tbl
+    if hasattr(el, "_element"):
+        return el._element/Users/mani/Downloads/mdl_helpers.py
+    return el  # assume already oxml
+
+def _insert_after(anchor, new_block):
+    """Insert new_block (Paragraph/Table or raw oxml) after anchor (Paragraph/Table or raw oxml)."""
+    a = _as_oxml(anchor)
+    n = _as_oxml(new_block)
+    a.addnext(n)
+
+def _apply_grid_borders(tbl: Table):
+    """Ensure visible borders regardless of style availability."""
+    tbl_el = tbl._tbl
+    tblPr = tbl_el.tblPr or tbl_el.get_or_add_tblPr()
+    borders = OxmlElement("w:tblBorders")
+    for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        e = OxmlElement(f"w:{side}")
+        e.set(qn("w:val"), "single")
+        e.set(qn("w:sz"), "6")     # 0.5pt
+        e.set(qn("w:space"), "0")
+        e.set(qn("w:color"), "auto")
+        borders.append(e)
+    tblPr.append(borders)
+
+def _title_case(s: str) -> str:
+    if not s:
+        return ""
+    return s.title()
+
+def _remove_paragraph(p):
+    # safe remove of a docx paragraph
+    p._element.getparent().remove(p._element)
+
+def _norm_txt(s: str) -> str:
+    if not s:
+        return ""
+    # normalize NBSP, dashes, whitespace
+    s = s.replace("\u00A0", " ").replace("\xa0", " ")
+    s = s.replace("–", "-").replace("—", "-")
+    return " ".join(s.split())
+
+def _title_with_article(name: str) -> str:
+    if not name:
+        return ""
+    return name if name.lower().startswith("the ") else f"The {name}"
+
+def _no_article(name: str) -> str:
+    """Return the name without 'The' article."""
+    if not name:
+        return ""
+    clean = name.strip()
+    # Remove "The " if it exists at the beginning
+    if clean.lower().startswith("the "):
+        return clean[4:].strip()
+    return clean
+
+def _from_fac_general(gen: List[Dict[str, Any]]) -> Dict[str, str]:
     """
-    Add a hyperlink to a paragraph.
-    
-    Args:
-        paragraph: The paragraph to add the hyperlink to
-        url: The URL (e.g., "mailto:email@example.com" or "https://...")
-        text: The display text for the hyperlink
-        color: Hex color code (default blue)
-        underline: Whether to underline the link
-    
+    Pull best-effort defaults from FAC 'general' row.
+    We tolerate missing columns—return what we can.
+    """
+    if not gen:
+        return {}
+    g = gen[0] or {}
+
+    # FAC fields vary slightly across vintages; try common variants.
+    addr1 = g.get("auditee_address_line_1") or g.get("auditee_address1") or ""
+    city  = g.get("auditee_city") or g.get("city") or ""
+    state = g.get("auditee_state") or g.get("state") or ""
+    zipc  = (g.get("auditee_zip") or g.get("zip_code") or "").strip()
+
+    auditor = g.get("auditor_firm_name") or g.get("auditor_name") or ""
+
+    # Period end text if present; fall back to just year elsewhere
+    fy_end = g.get("fy_end_text") or g.get("fy_end_date") or g.get("fiscal_year_end") or ""
+
+    return {
+        "street_address": addr1,
+        "city": city,
+        "state": state,
+        "zip_code": zipc,
+        "auditor_name": auditor,
+        "period_end_text": fy_end
+    }
+
+# def _cleanup_post_table_narrative(doc, model):
+#     """
+#     Remove the repeated narrative paragraphs that appear after the program table(s):
+#       - Lines starting with the finding id (e.g., '2024-002 – ...')
+#       - Auditor Description..., Auditor Recommendation., Responsible Person:, Corrective Action., Anticipated Completion Date:
+#       - Lines duplicating the raw finding summary text
+#     """
+#     # Collect IDs and summaries to match
+#     finding_ids = set()
+#     summaries = set()
+#     combos = set()
+#     for prog in (model.get("programs") or []):
+#         for f in (prog.get("findings") or []):
+#             fid = (f.get("finding_id") or "").strip()
+#             summ = (f.get("summary") or "").strip()
+#             combo = (f.get("compliance_and_summary") or "").strip()
+#             if fid: finding_ids.add(fid)
+#             if summ: summaries.add(_norm_txt(summ))
+#             if combo: combos.add(_norm_txt(combo))
+
+#     # Regex patterns that match the repeated narrative blocks in the body
+#     starts = [
+#         r"^\d{4}-\d{3}\s*-\s*",                        # e.g., 2024-002 -
+#         r"^\d{4}-\d{3}\s*[––]\s*",                     # e.g., 2024-002 – (en/em dash)
+#         r"^Auditor\s+Description\s+of\s+Condition",    # Auditor Description of Condition...
+#         r"^Auditor\s+Recommendation\.?",               # Auditor Recommendation.
+#         r"^Responsible\s+Person\s*:",                  # Responsible Person:
+#         r"^Corrective\s+Action\.?",                    # Corrective Action.
+#         r"^Anticipated\s+Completion\s+Date\s*:",       # Anticipated Completion Date:
+#         # ✅ NEW: Add patterns for FAC finding text blocks
+#         r"^Federal\s+Agency\s*:",                      # Federal Agency:
+#         r"^Federal\s+Program\s+Title\s*:",             # Federal Program Title:
+#         r"^Assistance\s+Listing\s+Number\s*:",         # Assistance Listing Number:
+#         r"^Federal\s+Award\s+Identification",          # Federal Award Identification Number
+#         r"^Compliance\s+Requirement\s+Affected\s*:",   # Compliance Requirement Affected:
+#         r"^Award\s+Period\s*:",                        # Award Period:
+#         r"^Type\s+of\s+Finding\s*:",                   # Type of Finding:
+#         r"^Recommendation\s*:",                        # Recommendation:
+#         r"^Explanation\s+of\s+disagreement",           # Explanation of disagreement
+#         r"^Action\s+taken\s+in\s+response",            # Action taken in response
+#         r"^Name\s+of\s+the\s+contact\s+person",        # Name of the contact person
+#         r"^Planned\s+completion\s+date",               # Planned completion date
+#         r"^SUSPENSION\s+AND\s+DEBARMENT",              # Headers like "SUSPENSION AND DEBARMENT"
+#         r"^PROCUREMENT",                               # Other compliance type headers
+#     ]
+#     patt = re.compile("|".join(starts), re.IGNORECASE)
+
+#     # Remove paragraphs that match any of the above
+#     for p in list(doc.paragraphs):
+#         t = _norm_txt("".join(r.text for r in p.runs))
+#         if not t:
+#             continue
+
+#         # Exact/contains matches
+#         if any(fid in t for fid in finding_ids):
+#             _remove_paragraph(p); continue
+
+#         if patt.search(t):
+#             _remove_paragraph(p); continue
+
+#         nt = _norm_txt(t)
+#         if any(s and s.lower() in nt.lower() for s in summaries):
+#             _remove_paragraph(p); continue
+
+#         if any(c and c.lower() in nt.lower() for c in combos):
+#             _remove_paragraph(p); continue
+
+
+def _cleanup_post_table_narrative(doc, model):
+    """
+    Remove the repeated narrative paragraphs that appear after the program table(s):
+      - Lines starting with the finding id (e.g., '2024-002 – ...')
+      - Full FAC finding text blocks (Federal Agency, Award Period, etc.)
+      - Auditor Description..., Auditor Recommendation., Responsible Person:, Corrective Action., Anticipated Completion Date:
+      - Lines duplicating the raw finding summary text
+    """
+    # Collect IDs and summaries to match
+    finding_ids = set()
+    summaries = set()
+    combos = set()
+    for prog in (model.get("programs") or []):
+        for f in (prog.get("findings") or []):
+            fid = (f.get("finding_id") or "").strip()
+            summ = (f.get("summary") or "").strip()
+            combo = (f.get("compliance_and_summary") or "").strip()
+            if fid: finding_ids.add(fid)
+            if summ: summaries.add(_norm_txt(summ))
+            if combo: combos.add(_norm_txt(combo))
+
+    # Regex patterns that match the repeated narrative blocks in the body
+    starts = [
+        r"^\d{4}-\d{3}\s*-\s*",                        # e.g., 2024-002 -
+        r"^\d{4}-\d{3}\s*[––]\s*",                     # e.g., 2024-002 – (en/em dash)
+        r"^Auditor\s+Description\s+of\s+Condition",    # Auditor Description of Condition...
+        r"^Auditor\s+Recommendation\.?",               # Auditor Recommendation.
+        r"^Responsible\s+Person\s*:",                  # Responsible Person:
+        r"^Corrective\s+Action\.?",                    # Corrective Action.
+        r"^Anticipated\s+Completion\s+Date\s*:",       # Anticipated Completion Date:
+        # ✅ NEW: Add patterns for FAC finding text blocks
+        r"^Federal\s+Agency\s*:",                      # Federal Agency:
+        r"^Federal\s+Program\s+Title\s*:",             # Federal Program Title:
+        #r"^Assistance\s+Listing\s+Number\s*:",         # Assistance Listing Number:
+        r"^Federal\s+Award\s+Identification",          # Federal Award Identification Number
+        r"^Compliance\s+Requirement\s+Affected\s*:",   # Compliance Requirement Affected:
+        r"^Award\s+Period\s*:",                        # Award Period:
+        r"^Type\s+of\s+Finding\s*:",                   # Type of Finding:
+        r"^Recommendation\s*:",                        # Recommendation:
+        r"^Explanation\s+of\s+disagreement",           # Explanation of disagreement
+        r"^Action\s+taken\s+in\s+response",            # Action taken in response
+        r"^Name\s+of\s+the\s+contact\s+person",        # Name of the contact person
+        r"^Planned\s+completion\s+date",               # Planned completion date
+        r"^SUSPENSION\s+AND\s+DEBARMENT",              # Headers like "SUSPENSION AND DEBARMENT"
+        r"^PROCUREMENT",                               # Other compliance type headers
+    ]
+    patt = re.compile("|".join(starts), re.IGNORECASE)
+
+    # Remove paragraphs that match any of the above
+    removed_count = 0
+    for p in list(doc.paragraphs):
+        t = _norm_txt("".join(r.text for r in p.runs))
+        if not t:
+            continue
+        
+        # ✅ CRITICAL FIX: Skip the program header paragraph
+        if "Assistance Listing Number/Program Name:" in t:
+            logging.info(f"✅ Skipping program header from cleanup: {t[:80]}")
+            continue
+
+        should_remove = False
+        reason = ""
+
+        # Exact/contains matches
+        if any(fid in t for fid in finding_ids):
+            should_remove = True
+            reason = f"contains finding ID"
+
+        elif patt.search(t):
+            should_remove = True
+            reason = "matches FAC narrative pattern"
+
+        elif any(s and s.lower() in t.lower() for s in summaries):
+            should_remove = True
+            reason = "matches summary"
+
+        elif any(c and c.lower() in t.lower() for c in combos):
+            should_remove = True
+            reason = "matches combo"
+
+        # ✅ NEW: Also check for common ALN patterns (21.027, SLFRP, etc.)
+        elif re.search(r'\b\d{2}\.\d{3}\b', t) and "Assistance Listing Number/Program Name" not in t:  # Matches ALN like 21.027
+            should_remove = True
+            reason = "contains ALN pattern"
+
+        elif re.search(r'\bSLFRP\d+\b', t, re.IGNORECASE):  # Matches award numbers like SLFRP2889
+            should_remove = True
+            reason = "contains SLFRP award number"
+
+        if should_remove:
+            logging.info(f"🗑️  Removing ({reason}): {t[:100]}")
+            _remove_paragraph(p)
+            removed_count += 1
+
+    logging.info(f"✅ Cleanup removed {removed_count} duplicate narrative paragraphs")
+
+
+# def _pluralize_text(doc, total_findings: int):
+#     """
+#     Replace tokens like finding(s), CAP(s), issue(s), violate(s) etc.
+#     with singular or plural forms depending on total_findings.
+#     """
+#     singular = (total_findings == 1)
+
+#     replacements = {
+#         "audit finding(s)": "audit finding" if singular else "audit findings",
+#         "finding(s)": "finding" if singular else "findings",
+#         "issue(s)": "issue" if singular else "issues",
+#         "violate(s)": "violates" if singular else "violate",
+#         "CAP(s)": "CAP" if singular else "CAPs",
+#         "address(es)": "addresses" if singular else "address",
+#         "date(s)": "date" if singular else "dates",
+#         "corrective action(s)": "corrective action" if singular else "corrective actions",
+#         "appear(s)": "appears" if singular else "appear",
+#     }
+
+#     def _replace_in_para(p):
+#         for run in p.runs:
+#             text = run.text
+#             for k, v in replacements.items():
+#                 if k in text:
+#                     run.text = text.replace(k, v)
+
+#     for p in doc.paragraphs:
+#         _replace_in_para(p)
+
+#     # also fix inside tables if tokens appear there
+#     for tbl in doc.tables:
+#         for row in tbl.rows:
+#             for cell in row.cells:
+#                 for p in cell.paragraphs:
+#                     _replace_in_para(p)
+
+import re as _re
+
+def _rewrite_para_text(p, new_text: str):
+    """Clear all runs in a paragraph and set to new_text."""
+    for r in list(p.runs):
+        r.clear()  # python-docx 1.1+; if older, do r._element.getparent().remove(r._element)
+    p._element.clear_content()  # older-safe: remove content, keep properties
+    p.add_run(new_text)
+
+def _get_para_text(p) -> str:
+    return "".join(r.text for r in p.runs)
+
+def _pluralize_string(s: str, singular: bool) -> str:
+    mapping_singular = {
+        "audit finding(s) sustained": "The audit finding is sustained",
+        "issue(s) violate(s)": "issue violates",
+        "cap(s), if implemented,  responsive": "The CAP, if implemented, is responsive",
+        "address(es) the cause": "addresses the cause",
+        "date(s) indicated": "date indicated",
+        "corrective action(s)  subject": "The corrective action is subject",
+        "audit finding(s) appear(s)": "audit finding appears",
+    }
+
+    mapping_plural = {
+        "audit finding(s) sustained": "The audit findings are sustained",
+        "issue(s) violate(s)": "issues violate",
+        "cap(s), if implemented,  responsive": "The CAPs, if implemented, are responsive",
+        "address(es) the cause": "address the causes",
+        "date(s) indicated": "dates indicated",
+        "corrective action(s)  subject": "The corrective actions are subject",
+        "audit finding(s) appear(s)": "audit findings appear",
+    }
+
+    mapping = mapping_singular if singular else mapping_plural
+
+    out = s
+    for k, v in mapping.items():
+        if k in out:
+            out = out.replace(k, v)
+    return out
+
+def _rewrite_para_text(p, new_text: str):
+    # Clear all runs and set new clean text
+    for r in list(p.runs):
+        r._element.getparent().remove(r._element)
+    p.add_run(new_text)
+
+def _para_text(p) -> str:
+    return "".join(r.text for r in p.runs)
+
+def _looks_like_optional_plural_text(s: str) -> bool:
+    """Find paragraphs that still have '(s)' or '(es)' style tokens or subject-verb '(s)'. """
+    s = (s or "")
+    return any(t in s for t in ["(s)", "(es)", "violate(s)", "address(es)", "appear(s)"]) or " audit finding" in s.lower() or " corrective action" in s.lower()
+
+def _pluralize_with_openai(text: str, total_findings: int) -> Optional[str]:
+    """
+    Use OpenAI to convert optional-plural boilerplate into grammatically correct text.
+    Returns rewritten string, or None on failure.
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+
+    singular = (total_findings == 1)
+    style_hint = (
+        "Use singular grammar (is/addresses/appears; finding, issue, CAP, date, corrective action)."
+        if singular else
+        "Use plural grammar (are/address/appear; findings, issues, CAPs, dates, corrective actions)."
+    )
+
+    system = (
+        "You are revising boilerplate text in a U.S. government letter. "
+        "Rewrite the provided text to be grammatically correct and natural, "
+        "resolving any optional plural tokens like '(s)' or '(es)' and fixing subject–verb agreement. "
+        "Preserve meaning and tone; do not add or remove content beyond grammar and number agreement. "
+        "Return only the final sentence(s) with no quotes."
+    )
+    user = (
+        f"{style_hint}\n\n"
+        "Rewrite the text below to be grammatically correct. Resolve all '(s)' / '(es)' tokens and subject–verb forms. "
+        "Keep the same information, formal tone, and punctuation.\n\n"
+        f"Text:\n{text}"
+    )
+
+    try:
+        resp = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            data=json.dumps({
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": 0,
+            }),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        out = resp.json()
+        rewritten = (out.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+        return rewritten or None
+    except Exception:
+        return None
+
+def _ai_fix_pluralization_in_doc(doc, total_findings: int):
+    """
+    Find paragraphs with '(s)/(es)' style text or affected phrases and fix them via OpenAI.
+    Falls back silently if API not available.
+    """
+    candidates = []
+    # Scan body paragraphs
+    for p in doc.paragraphs:
+        t = _para_text(p)
+        if _looks_like_optional_plural_text(t):
+            candidates.append(p)
+    # Also scan header/footer just in case
+    for sec in doc.sections:
+        for container in (sec.header, sec.footer):
+            for p in container.paragraphs:
+                t = _para_text(p)
+                if _looks_like_optional_plural_text(t):
+                    candidates.append(p)
+
+    # Rewrite each candidate via OpenAI; if it fails, leave as-is
+    for p in candidates:
+        original = _para_text(p).strip()
+        if not original:
+            continue
+        rewritten = _pluralize_with_openai(original, total_findings)
+        if rewritten and rewritten != original:
+            _rewrite_para_text(p, rewritten)
+
+
+# === Finding types & summary mapping (from Excel) ===
+def _load_finding_mappings(xlsx_path: Optional[str]):
+    """
     Returns:
-        The hyperlink element
-    
-    # Get the document part
       - type_map: {'I': 'Procurement and suspension and debarment', ...}
       - summary_labels: ['Lack of evidence of suspension and debarment verification', ...]
     Tolerant to header naming; no-op if workbook missing.
@@ -580,191 +1044,40 @@ def _add_hyperlink(paragraph, url, text):
     """
     # Get relationship ID
     part = paragraph.part
-    r_id = part.relate_to(url, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", is_external=True)
-    
-    # Create the hyperlink element
+    r_id = part.relate_to(url, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink', is_external=True)
+
+    # Create hyperlink element
     hyperlink = OxmlElement('w:hyperlink')
     hyperlink.set(qn('r:id'), r_id)
+
+    # Create run for hyperlink text
+    run = OxmlElement('w:r')
     
-    # Create a new run for the hyperlink text
-    new_run = OxmlElement('w:r')
-    
-    # Set run properties (color, underline)
+    # Run properties (blue + underline)
     rPr = OxmlElement('w:rPr')
     
-    # Color
-    c = OxmlElement('w:color')
-    c.set(qn('w:val'), color)
-    rPr.append(c)
+    # Blue color
+    color = OxmlElement('w:color')
+    color.set(qn('w:val'), '0563C1')
+    rPr.append(color)
     
     # Underline
-    if underline:
-        u = OxmlElement('w:u')
-        u.set(qn('w:val'), 'single')
-        rPr.append(u)
+    u = OxmlElement('w:u')
+    u.set(qn('w:val'), 'single')
+    rPr.append(u)
     
-    new_run.append(rPr)
+    run.append(rPr)
     
-    # Add the text
-    text_elem = OxmlElement('w:t')
-    text_elem.text = text
-    new_run.append(text_elem)
+    # Add text
+    t = OxmlElement('w:t')
+    t.set(qn('xml:space'), 'preserve')
+    t.text = text
+    run.append(t)
     
-    hyperlink.append(new_run)
-    paragraph._p.append(hyperlink)
+    hyperlink.append(run)
     
     return hyperlink
 
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
-class Config:
-    FAC_API_BASE = os.getenv("FAC_API_BASE", "https://api.fac.gov")
-    FAC_API_KEY = os.getenv("FAC_API_KEY", "")
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-    AZURE_CONN_STR = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
-    AZURE_CONTAINER = os.getenv("AZURE_BLOB_CONTAINER", "mdl-output")
-    LOCAL_SAVE_DIR = os.getenv("LOCAL_SAVE_DIR", "./_out")
-    PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
-    MDL_TEMPLATE_PATH = os.getenv("MDL_TEMPLATE_PATH", "templates/MDL_Template.docx")
-    TREASURY_EMAIL = os.getenv("TREASURY_CONTACT_EMAIL", "ORP_SingleAudits@treasury.gov")
-
-
-# ============================================================
-# STATIC DATA - From Comments & mdl_helpers.py
-# ============================================================
-
-# Treasury Programs (Comment #26, #27): ALN -> (Full Name, Acronym)
-TREASURY_PROGRAMS = {
-    "21.019": ("Coronavirus Relief Fund", "CRF"),
-    "21.023": ("Emergency Rental Assistance Program", "ERA"),
-    "21.026": ("Homeowner Assistance Fund", "HAF"),
-    "21.027": ("Coronavirus State and Local Fiscal Recovery Funds", "SLFRF"),
-    "21.029": ("Capital Projects Fund", "CPF"),
-    "21.031": ("State Small Business Credit Initiative", "SSBCI"),
-    "21.032": ("Local Assistance and Tribal Consistency Fund", "LATCF"),
-}
-
-# Compliance Types (Comment #32, #34): Letter -> Full Description
-COMPLIANCE_TYPES = {
-    "A": "Activities allowed or unallowed",
-    "B": "Allowable costs/cost principles",
-    "C": "Cash management",
-    "E": "Eligibility",
-    "F": "Equipment and real property management",
-    "G": "Matching, level of effort, earmarking",
-    "H": "Period of performance (or availability) of Federal funds",
-    "I": "Procurement and suspension and debarment",
-    "J": "Program income",
-    "L": "Reporting",
-    "M": "Subrecipient monitoring",
-    "N": "Special tests and provisions",
-    "P": "Other",
-}
-
-# Standard Finding Summaries (Comment #37, #38)
-FINDING_SUMMARIES = [
-    "Deficient Subrecipient Monitoring or Deficient Subaward",
-    "Failure to file FFATA report for subawards",
-    "Lack of evidence of competitive procurement",
-    "Lack of evidence of suspension and debarment verification",
-    "Lack of time and effort documentation",
-    "Failure to retain adequate supporting documentation",
-    "Inaccurate Treasury Reporting",
-    "Lack of Eligibility Support",
-    "Unallowable expenditures due to being incurred outside of period of performance",
-    "Lack of Written Policies and/or Procedures - Management of Federal Funds",
-    "Lack of Segregation of Duties",
-    "Lack of Internal Controls - Grants Management",
-]
-
-# Keywords for classification fallback
-FINDING_KEYWORDS = {
-    "subrecipient": "Deficient Subrecipient Monitoring or Deficient Subaward",
-    "subaward": "Deficient Subrecipient Monitoring or Deficient Subaward",
-    "sub-recipient": "Deficient Subrecipient Monitoring or Deficient Subaward",
-    "ffata": "Failure to file FFATA report for subawards",
-    "procurement": "Lack of evidence of competitive procurement",
-    "competitive bid": "Lack of evidence of competitive procurement",
-    "sole source": "Lack of evidence of competitive procurement",
-    "bid": "Lack of evidence of competitive procurement",
-    "suspension and debarment": "Lack of evidence of suspension and debarment verification",
-    "sam.gov": "Lack of evidence of suspension and debarment verification",
-    "debarment": "Lack of evidence of suspension and debarment verification",
-    "suspended": "Lack of evidence of suspension and debarment verification",
-    "debarred": "Lack of evidence of suspension and debarment verification",
-    "time and effort": "Lack of time and effort documentation",
-    "timesheet": "Lack of time and effort documentation",
-    "labor cost": "Lack of time and effort documentation",
-    "personnel": "Lack of time and effort documentation",
-    "documentation": "Failure to retain adequate supporting documentation",
-    "supporting documentation": "Failure to retain adequate supporting documentation",
-    "records": "Failure to retain adequate supporting documentation",
-    "treasury report": "Inaccurate Treasury Reporting",
-    "quarterly report": "Inaccurate Treasury Reporting",
-    "project and expenditure": "Inaccurate Treasury Reporting",
-    "p&e report": "Inaccurate Treasury Reporting",
-    "period of performance": "Unallowable expenditures due to being incurred outside of period of performance",
-    "outside the period": "Unallowable expenditures due to being incurred outside of period of performance",
-    "eligibility": "Lack of Eligibility Support",
-    "eligible": "Lack of Eligibility Support",
-    "internal control": "Lack of Internal Controls - Grants Management",
-    "policies and procedures": "Lack of Written Policies and/or Procedures - Management of Federal Funds",
-    "written policies": "Lack of Written Policies and/or Procedures - Management of Federal Funds",
-    "segregation of duties": "Lack of Segregation of Duties",
-    "segregation": "Lack of Segregation of Duties",
-}
-
-
-# ============================================================
-# FORMATTING UTILITIES (Based on Comments #1, #5, #14, #16)
-# ============================================================
-
-def to_standard_case(name: str) -> str:
-    """
-    Convert ALL CAPS to Standard Case (Comment #1: "Everything must be in standard case")
-    Preserves known acronyms like LLC, LLP, etc.
-    """
-    if not name:
-        return ""
-    name = name.strip()
-    
-    if not name.isupper():
-        return name  # Already mixed case, preserve
-    
-    # Known acronyms to preserve
-    acronyms = {"LLC", "LLP", "PC", "PA", "CPA", "USA", "US", "II", "III", "IV"}
-    # Words to keep lowercase (except at start)
-    lowercase_words = {"and", "or", "the", "of", "for", "to", "in", "on", "by", "with", "a", "an"}
-    
-    words = []
-    for i, word in enumerate(name.split()):
-        word_upper = word.upper()
-        word_lower = word.lower()
-        
-        if word_upper in acronyms:
-            words.append(word_upper)
-        elif word_lower in lowercase_words and i > 0:
-            words.append(word_lower)
-        else:
-            words.append(word.capitalize())
-    
-    return " ".join(words)
-
-
-def format_ein(ein: str) -> str:
-    """
-    Format EIN as XX-XXXXXXX (Comment #5: "Must be XX-XXXXXXX format")
-    """
-    ein = (ein or "").replace("-", "").replace(" ", "").strip()
-    if len(ein) == 9 and ein.isdigit():
-        return f"{ein[:2]}-{ein[2:]}"
-    return ein
-
-
-#def format_date(date_str: Optional[str]) -> str:
 def render_mdl_html(model: Dict[str, Any]) -> str:
     letter_date_iso = model.get("letter_date_iso")
     _, letter_date_long = format_letter_date(letter_date_iso)
@@ -1825,36 +2138,97 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 
 def _insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Paragraph, programs: List[Dict[str, Any]]):
     """
-    Format date as "Month Day, Year" (Comment #14: "Must be in [Month] [Day], [Year] format")
-    Example: "June 30, 2024"
+    Insert program tables without creating duplicate headers.
+    The template already has the header paragraph, we just insert tables.
     """
-    if not date_str:
-        return ""
-    try:
-        # Try ISO format (2024-06-30)
-        if "-" in date_str and len(date_str) >= 10:
-            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00").split("T")[0])
-            return dt.strftime("%B %d, %Y")
-        return date_str
-    except:
-        return date_str
+    # Clean anchor text
+    text = _para_text(anchor_para).replace("[[PROGRAM_TABLES]]", "")
+    _clear_runs(anchor_para)
+    if text.strip():
+        anchor_para.add_run(text)
 
+    # ✅ FIX: Remove extra space after anchor paragraph (space above Findings table)
+    _tight_paragraph(anchor_para)
 
-def add_the_prefix(name: str) -> str:
+    # Delete any placeholder table immediately following the anchor
+    _delete_immediate_next_table(anchor_para)
+
+    # Order programs by ALN
+    def _al_key(p):
+        return (p.get("assistance_listing") or "99.999")
+    programs_sorted = sorted(programs or [], key=_al_key)
+
+    last = anchor_para
+    
+    # For SINGLE program: just insert table (header already exists in template)
+    # For MULTIPLE programs: insert header + table for 2nd, 3rd, etc.
+    for idx, p in enumerate(programs_sorted):
+        al = p.get("assistance_listing", "Unknown")
+        name = p.get("program_name", "Unknown Program")
+        
+        # Only add header for 2nd+ programs (first uses the template header)
+        if idx > 0:
+            heading_para = doc.add_paragraph()
+            _clear_runs(heading_para)
+            
+            # Add bold header text
+            header_run = heading_para.add_run("Assistance Listing Number/Program Name:")
+            header_run.bold = True
+            
+            # Add line break
+            heading_para.add_run("\n")
+            
+            # Add the ALN and program name (not bold)
+            heading_para.add_run(f"{al} / {name}")
+            
+            # ✅ KEY FIX: Tight spacing - no extra space before table
+            _tight_paragraph(heading_para)
+            heading_para.paragraph_format.space_before = Pt(12)  # Space from previous table only
+            
+            # Splice heading after 'last'
+            heading_el = heading_para._p
+            heading_el.getparent().remove(heading_el)
+            _insert_after(last, heading_el)
+            last = heading_el
+
+        # Insert table
+        tbl = _build_program_table(doc, p)
+        tbl_el = tbl._tbl
+        tbl_el.getparent().remove(tbl_el)
+        _insert_after(last, tbl_el)
+        last = tbl_el
+
+        # # Insert CAPs after the table
+        # for f in p.get("findings", []):
+        #     cap_text = (f or {}).get("cap_text")
+        #     if cap_text:
+        #         cap_title = doc.add_paragraph()
+        #         _clear_runs(cap_title)
+        #         cap_title.add_run(f"Corrective Action Plan – {f.get('finding_id','')}")
+                
+        #         cap_text_para = doc.add_paragraph()
+        #         _clear_runs(cap_text_para)
+        #         cap_text_para.add_run(cap_text)
+
+        #         cap_title_el = cap_title._p
+        #         cap_text_el = cap_text_para._p
+        #         cap_title_el.getparent().remove(cap_title_el)
+        #         cap_text_el.getparent().remove(cap_text_el)
+                
+        #         _insert_after(last, cap_title_el)
+        #         _insert_after(cap_title_el, cap_text_el)
+        #         last = cap_text_el
+
+        # Spacer between programs (if multiple)
+        if idx < len(programs_sorted) - 1:
+            spacer = doc.add_paragraph()
+            spacer_el = spacer._p
+            spacer_el.getparent().remove(spacer_el)
+            _insert_after(last, spacer_el)
+            last = spacer_el
+
+def _remove_watermarks(doc):
     """
-    Add "The" prefix if not present (Comment #16: "Must add 'The' before recipient name")
-    """
-    if not name:
-        return ""
-    name = name.strip()
-    if name.lower().startswith("the "):
-        return name
-    return f"The {name}"
-
-
-def add_the_lowercase_prefix(name: str) -> str:
-    """
-    Add "the" prefix (lowercase) for auditor name in narrative.
     Removes WordArt/VML watermark shapes (e.g., 'PowerPlusWaterMarkObject', 'DRAFT')
     from headers/footers/body. Works with typical Word 'DRAFT' watermarks.
     """
@@ -1915,241 +2289,6 @@ def _format_name_standard_case(name: str) -> str:
     """
     if not name:
         return ""
-    name = name.strip()
-    if name.lower().startswith("the "):
-        return name
-    return f"the {name}"
-
-
-def get_current_date() -> str:
-    """
-    Get current date in required format (Comment #0: "Current Date")
-    """
-    return datetime.now().strftime("%B %d, %Y")
-
-
-# ============================================================
-# PLURALIZATION (Comments #19, #20, #40)
-# ============================================================
-
-def get_pluralization(count: int) -> Dict[str, str]:
-    """
-    Get singular/plural forms based on finding count.
-    Comment #19: "Add S if plural, remove if singular finding"
-    """
-    singular = (count == 1)
-    
-    return {
-        # For "[is/are]" placeholder
-        "is/are": "is" if singular else "are",
-        
-        # For "[The]" placeholder before recipient name in body
-        # Comment #16: Must add "The" before recipient name
-        # But for singular, we may not want "The" (based on template context)
-        "The": "" if singular else "The",
-        
-        # For "[the]" placeholder before auditor name  
-        "the": "the",  # Always lowercase "the" before auditor
-        
-        # Additional pluralization helpers (if template uses these)
-        "finding_s": "finding" if singular else "findings",
-        "issue_s": "issue" if singular else "issues",
-        "violate_s": "violates" if singular else "violate",
-        "CAP_s": "CAP" if singular else "CAPs",
-    }
-
-
-# ============================================================
-# FAC CLIENT
-# ============================================================
-
-class FACClient:
-    """Federal Audit Clearinghouse API client."""
-    
-    def __init__(self, api_key: str = ""):
-        self.base_url = Config.FAC_API_BASE
-        self.session = requests.Session()
-        self.session.headers["Accept"] = "application/json"
-        if api_key:
-            self.session.headers["X-Api-Key"] = api_key
-    
-    def _get(self, endpoint: str, params: dict) -> list:
-        url = f"{self.base_url}/{endpoint}"
-        try:
-            resp = self.session.get(url, params=params, timeout=30)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.HTTPError as e:
-            logger.error(f"FAC API error: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"FAC API error: {e}")
-            return []
-    
-    def _or_param(self, field: str, values: List[str]) -> str:
-        inner = ",".join([f"{field}.eq.{v}" for v in values])
-        return f"({inner})"
-    
-    def find_report(self, ein: str, year: int) -> Optional[dict]:
-        """Find most recent report for EIN/year."""
-        logger.info(f"Searching FAC: EIN={ein}, year={year}")
-        data = self._get("general", {
-            "audit_year": f"eq.{year}",
-            "auditee_ein": f"eq.{ein}",
-            "select": "report_id,fac_accepted_date,auditee_name,auditee_address_line_1,"
-                     "auditee_city,auditee_state,auditee_zip,auditor_firm_name,"
-                     "fy_end_date,auditee_contact_name,auditee_contact_title",
-            "order": "fac_accepted_date.desc",
-            "limit": "1",
-        })
-        if data:
-            logger.info(f"Found report: {data[0].get('report_id')}")
-            return data[0]
-        logger.warning("No report found")
-        return None
-    
-    def get_findings(self, report_id: str, max_refs: int = 15, only_flagged: bool = False) -> List[dict]:
-        """Get findings for a report."""
-        params = {
-            "report_id": f"eq.{report_id}",
-            "select": "reference_number,award_reference,type_requirement,"
-                     "is_material_weakness,is_significant_deficiency,is_questioned_costs,"
-                     "is_modified_opinion,is_other_findings,is_other_matters,"
-                     "is_repeat_finding,prior_finding_ref_numbers",
-            "order": "reference_number.asc",
-            "limit": str(max_refs),
-        }
-        if only_flagged:
-            flagged = ["is_material_weakness", "is_significant_deficiency", "is_questioned_costs",
-                      "is_modified_opinion", "is_other_findings", "is_other_matters", "is_repeat_finding"]
-            params["or"] = "(" + ",".join(f"{f}.eq.true" for f in flagged) + ")"
-        return self._get("findings", params) or []
-    
-    def get_findings_text(self, report_id: str, refs: List[str]) -> Dict[str, str]:
-        """Get finding text by reference."""
-        if not refs:
-            return {}
-        data = self._get("findings_text", {
-            "report_id": f"eq.{report_id}",
-            "select": "finding_ref_number,finding_text",
-            "order": "finding_ref_number.asc",
-            "limit": str(len(refs) + 5),
-            "or": self._or_param("finding_ref_number", refs),
-        }) or []
-        return {d.get("finding_ref_number", ""): d.get("finding_text", "") for d in data}
-    
-    def get_caps(self, report_id: str, refs: List[str]) -> Dict[str, str]:
-        """Get corrective action plans by reference."""
-        if not refs:
-            return {}
-        data = self._get("corrective_action_plans", {
-            "report_id": f"eq.{report_id}",
-            "select": "finding_ref_number,planned_action",
-            "order": "finding_ref_number.asc",
-            "limit": str(len(refs) + 5),
-            "or": self._or_param("finding_ref_number", refs),
-        }) or []
-        return {d.get("finding_ref_number", ""): d.get("planned_action", "") for d in data}
-    
-    def get_awards(self, report_id: str) -> List[dict]:
-        """Get federal awards for a report."""
-        return self._get("federal_awards", {
-            "report_id": f"eq.{report_id}",
-            "select": "award_reference,federal_program_name,assistance_listing",
-            "order": "award_reference.asc",
-            "limit": "200",
-        }) or []
-    
-    def get_aln_from_summary_excel(self, report_id: str) -> Tuple[Dict[str, str], Dict[str, str]]:
-        """
-        Download FAC summary Excel and extract ALN mappings.
-        
-        Returns:
-            (aln_by_award, aln_by_finding) where:
-            - aln_by_award: {award_reference: aln}
-            - aln_by_finding: {reference_number: aln}
-        
-        This is needed because the FAC API's federal_awards table doesn't always 
-        have the assistance_listing populated, but the Excel summary has complete data.
-        """
-        url = f"https://app.fac.gov/dissemination/summary-report/xlsx/{report_id}"
-        logger.info(f"📥 Downloading FAC summary from: {url}")
-        
-        aln_by_award = {}
-        aln_by_finding = {}
-        
-        try:
-            resp = requests.get(url, timeout=30)
-            resp.raise_for_status()
-            
-            import openpyxl
-            wb = openpyxl.load_workbook(BytesIO(resp.content), data_only=True)
-            
-            logger.info(f"📑 Excel sheets available: {wb.sheetnames}")
-            
-            # Process FEDERALAWARD sheet
-            if 'federalaward' in wb.sheetnames:
-                ws_fed = wb['federalaward']
-                headers = [str(cell.value or "").strip().lower() for cell in ws_fed[1]]
-                logger.info(f"   federalaward headers: {headers}")
-                
-                try:
-                    i_award_ref = headers.index('award_reference')
-                    i_aln = headers.index('aln')
-                    
-                    for row in ws_fed.iter_rows(min_row=2, values_only=True):
-                        if not row or all(c is None for c in row):
-                            continue
-                        
-                        award_ref = str(row[i_award_ref] or "").strip()
-                        aln = str(row[i_aln] or "").strip()
-                        
-                        # Validate ALN format (should be like 21.027)
-                        if award_ref and aln and re.match(r'^\d{2}\.\d{3}', aln):
-                            aln_by_award[award_ref] = aln
-                    
-                    logger.info(f"   ✅ Loaded {len(aln_by_award)} award→ALN mappings")
-                    
-                except ValueError as e:
-                    logger.warning(f"   ⚠️ Could not find columns in federalaward: {e}")
-            
-            # Process FINDING sheet
-            if 'finding' in wb.sheetnames:
-                ws_find = wb['finding']
-                headers = [str(cell.value or "").strip().lower() for cell in ws_find[1]]
-                logger.info(f"   finding headers: {headers}")
-                
-                try:
-                    i_ref_num = headers.index('reference_number')
-                    i_aln = headers.index('aln')
-                    
-                    for row in ws_find.iter_rows(min_row=2, values_only=True):
-                        if not row or all(c is None for c in row):
-                            continue
-                        
-                        ref_num = str(row[i_ref_num] or "").strip()
-                        aln = str(row[i_aln] or "").strip()
-                        
-                        if ref_num and aln and re.match(r'^\d{2}\.\d{3}', aln):
-                            aln_by_finding[ref_num] = aln
-                    
-                    logger.info(f"   ✅ Loaded {len(aln_by_finding)} finding→ALN mappings")
-                    
-                except ValueError as e:
-                    logger.warning(f"   ⚠️ Could not find columns in finding: {e}")
-            
-            # Log sample mappings
-            if aln_by_award:
-                samples = list(aln_by_award.items())[:3]
-                logger.info(f"   Sample award mappings: {samples}")
-            if aln_by_finding:
-                samples = list(aln_by_finding.items())[:3]
-                logger.info(f"   Sample finding mappings: {samples}")
-                
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to load FAC summary Excel: {e}")
-        
-        return aln_by_award, aln_by_finding
     
     clean = name.strip()
     
@@ -2171,7 +2310,7 @@ class FACClient:
         if i > 0 and w.lower() in LOWERCASE_WORDS:
             parts[i] = w.lower()
 
-    #return " ".join(parts)
+    return " ".join(parts)
 
 # def _remove_duplicate_program_headers(doc: Document, first_label: Paragraph):
 #     """
@@ -3552,41 +3691,33 @@ class BuildRequest(BaseModel):
 def healthz():
     return {"ok": True, "service": "mdl-generator", "version": "2.0.0"}
 
-@app.get("/local/{path:path}")
-def get_local_file(path: str):
-    full = os.path.join(LOCAL_SAVE_DIR, path)
-    if not os.path.isfile(full):
-        raise HTTPException(404, "Not found")
-    return FileResponse(
-        full,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
 
 @app.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildRequest):
     """Main endpoint."""
-    template = req.template_path or Config.MDL_TEMPLATE_PATH
-    gen = MDLGenerator(template_path=template)
-    
-    result = gen.generate_from_fac(
-        auditee_name=req.auditee_name,
-        ein=req.ein,
-        audit_year=req.audit_year,
-        treasury_listings=req.treasury_listings,
-        max_refs=req.max_refs,
-        only_flagged=req.only_flagged,
-        recipient_name=req.recipient_name,
-        street_address=req.street_address,
-        city=req.city,
-        state=req.state,
-        zip_code=req.zip_code,
-        poc_name=req.poc_name,
-        poc_title=req.poc_title,
-        auditor_name=req.auditor_name,
-        fiscal_year_end=req.fy_end_text,
-    )
-    
-    return result
+    try:
+        template = req.template_path or Config.MDL_TEMPLATE_PATH
+        gen = MDLGenerator(template_path=template)
+        
+        result = gen.generate_from_fac(
+            auditee_name=req.auditee_name,
+            ein=req.ein,
+            audit_year=req.audit_year,
+            treasury_listings=req.treasury_listings,
+            max_refs=req.max_refs,
+            only_flagged=req.only_flagged,
+            recipient_name=req.recipient_name,
+            street_address=req.street_address,
+            city=req.city,
+            state=req.state,
+            zip_code=req.zip_code,
+            poc_name=req.poc_name,
+            poc_title=req.poc_title,
+            auditor_name=req.auditor_name,
+            fiscal_year_end=req.fy_end_text,
+        )
+        
+        return result
         
 # ------------------------------------------------------------------------------
 # Schemas
@@ -5172,48 +5303,27 @@ def build_mdl_docx_auto(req: BuildAuto):
     except HTTPException as e:
         return JSONResponse(status_code=200, content={"ok": False, "message": f"{e.status_code}: {e.detail}"})
     except Exception as e:
-        logger.exception("Unhandled error")
-        return JSONResponse(status_code=200, content={"ok": False, "message": str(e)})
+        return JSONResponse(status_code=200, content={"ok": False, "message": f"Unhandled error: {e}"})
 
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
-@app.post("/build-mdl")
-def build_mdl(req: BuildRequest):
-    return build_mdl_docx_auto(req)
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    if request.url.path.endswith("/build-mdl-docx-auto"):
+        raw = await request.body()
+        try:
+            logging.info("== /build-mdl-docx-auto RAW BODY ==")
+            #logging.info(raw.decode("utf-8", errors="ignore"))
+        except Exception:
+            pass
+        # re-create the request stream for downstream
+        request._receive = (lambda b=raw: {"type": "http.request", "body": b, "more_body": False})
+    return await call_next(request)
 
-
-@app.get("/local/{path:path}")
-def get_local_file(path: str):
-    full = os.path.join(Config.LOCAL_SAVE_DIR, path)
-    if not os.path.isfile(full):
-        raise HTTPException(404, "Not found")
-    return FileResponse(
-        full,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
-
-
-# ============================================================
-# CLI
-# ============================================================
-
-if __name__ == "__main__":
-    import sys
-    
-    if len(sys.argv) >= 4:
-        gen = MDLGenerator()
-        result = gen.generate_from_fac(
-            auditee_name=sys.argv[1],
-            ein=sys.argv[2],
-            audit_year=int(sys.argv[3]),
-        )
-        if result.get("ok"):
-            print(f"✓ Generated: {result.get('url')}")
-            print(f"  Report: {result.get('report_id')}")
-            print(f"  Findings: {result.get('findings_count')}")
-        else:
-            print(f"✗ Error: {result.get('message')}")
-            sys.exit(1)
-    else:
-        import uvicorn
-        print("Starting MDL Generator API on port 8000...")
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logging.info("== Pydantic Validation Errors ==")
+    logging.info(exc.errors())
+    return JSONResponse(status_code=422, content={"ok": False, "errors": exc.errors()})        
