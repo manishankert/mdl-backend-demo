@@ -3566,29 +3566,28 @@ def healthz():
 @app.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildRequest):
     """Main endpoint."""
-    try:
-        template = req.template_path or Config.MDL_TEMPLATE_PATH
-        gen = MDLGenerator(template_path=template)
-        
-        result = gen.generate_from_fac(
-            auditee_name=req.auditee_name,
-            ein=req.ein,
-            audit_year=req.audit_year,
-            treasury_listings=req.treasury_listings,
-            max_refs=req.max_refs,
-            only_flagged=req.only_flagged,
-            recipient_name=req.recipient_name,
-            street_address=req.street_address,
-            city=req.city,
-            state=req.state,
-            zip_code=req.zip_code,
-            poc_name=req.poc_name,
-            poc_title=req.poc_title,
-            auditor_name=req.auditor_name,
-            fiscal_year_end=req.fy_end_text,
-        )
-        
-        return result
+    template = req.template_path or Config.MDL_TEMPLATE_PATH
+    gen = MDLGenerator(template_path=template)
+    
+    result = gen.generate_from_fac(
+        auditee_name=req.auditee_name,
+        ein=req.ein,
+        audit_year=req.audit_year,
+        treasury_listings=req.treasury_listings,
+        max_refs=req.max_refs,
+        only_flagged=req.only_flagged,
+        recipient_name=req.recipient_name,
+        street_address=req.street_address,
+        city=req.city,
+        state=req.state,
+        zip_code=req.zip_code,
+        poc_name=req.poc_name,
+        poc_title=req.poc_title,
+        auditor_name=req.auditor_name,
+        fiscal_year_end=req.fy_end_text,
+    )
+    
+    return result
         
 # ------------------------------------------------------------------------------
 # Schemas
