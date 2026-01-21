@@ -314,7 +314,7 @@ def _cleanup_post_table_narrative(doc, model):
         t = _norm_txt("".join(r.text for r in p.runs))
         if not t:
             continue
-        
+
         # ✅ CRITICAL FIX: Skip the program header paragraph
         if "Assistance Listing Number/Program Name:" in t:
             logging.info(f"✅ Skipping program header from cleanup: {t[:80]}")
@@ -683,7 +683,7 @@ def _best_summary_label_openai(summary: str, labels: List[str]) -> Optional[str]
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key or not labels:
         return None
-    
+
     # Create a clear prompt for matching
     prompt = (
         f"Given the following audit finding text, select the SINGLE best matching category from the list below.\n\n"
@@ -691,7 +691,7 @@ def _best_summary_label_openai(summary: str, labels: List[str]) -> Optional[str]
         f"Categories:\n" + "\n".join(f"- {label}" for label in labels) + "\n\n"
         f"Respond with ONLY the exact category text from the list above that best matches this finding."
     )
-    
+
     try:
         r = requests.post(
             "https://api.openai.com/v1/chat/completions",
@@ -952,8 +952,8 @@ def _basic_html_to_docx(doc: Document, html_str: str):
                         r.bold = True
                     c.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
             continue
-            
-            
+
+
 
         if tag in ("div","section","article"):
             p = doc.add_paragraph()
@@ -1062,30 +1062,30 @@ def _add_hyperlink(paragraph, url, text):
 
     # Create run for hyperlink text
     run = OxmlElement('w:r')
-    
+
     # Run properties (blue + underline)
     rPr = OxmlElement('w:rPr')
-    
+
     # Blue color
     color = OxmlElement('w:color')
     color.set(qn('w:val'), '0563C1')
     rPr.append(color)
-    
+
     # Underline
     u = OxmlElement('w:u')
     u.set(qn('w:val'), 'single')
     rPr.append(u)
-    
+
     run.append(rPr)
-    
+
     # Add text
     t = OxmlElement('w:t')
     t.set(qn('xml:space'), 'preserve')
     t.text = text
     run.append(t)
-    
+
     hyperlink.append(run)
-    
+
     return hyperlink
 
 def render_mdl_html(model: Dict[str, Any]) -> str:
@@ -1281,7 +1281,7 @@ def build_mdl_model_from_fac(
     # else:
     #     summary_labels = finding_summaries_list  # Use the one from mdl_helpers.py
     #     logging.warning("No aln_reference_xlsx provided, using hardcoded type_map")
-    
+
     # logging.info(f"Final type_map: {type_map}")
     # logging.info(f"Looking up 'I': {type_map.get('I')}")
 
@@ -1303,7 +1303,7 @@ def build_mdl_model_from_fac(
         "P": "Other"
     }
     summary_labels = finding_summaries_list  # from mdl_helpers.py
-    
+
     # Try to load from Excel (only if path provided and file exists)
     if aln_reference_xlsx:
         loaded_type_map, loaded_summary_labels = _load_finding_mappings(aln_reference_xlsx)
@@ -1313,7 +1313,7 @@ def build_mdl_model_from_fac(
         if loaded_summary_labels:
             summary_labels = loaded_summary_labels
             logging.info(f"✅ Loaded {len(loaded_summary_labels)} summary labels from Excel")
-    
+
     logging.info(f"Final type_map: {type_map}")
     logging.info(f"Looking up 'I': {type_map.get('I')}")
     # --------- helpers ----------
@@ -1543,10 +1543,10 @@ def build_mdl_model_from_fac(
 
         award_ref = f.get("award_reference") or "UNKNOWN"
         logging.info(f"🔍 Finding {r} → award_ref: {award_ref}")
-        
+
         # Try to get metadata from award lookup
         meta = award2meta.get(award_ref, {})
-        
+
         # If not found in award2meta, try aln_overrides_by_finding
         if not meta.get("assistance_listing") or meta.get("assistance_listing") == "Unknown":
             if aln_overrides_by_finding and r in aln_overrides_by_finding:
@@ -1556,7 +1556,7 @@ def build_mdl_model_from_fac(
                 # Update program name if we have ALN mapping
                 if override_aln in aln_to_label:
                     meta["program_name"] = aln_to_label[override_aln]
-        
+
         logging.info(f"   Final meta: {meta}")
 
         group = programs_map.setdefault(award_ref, {
@@ -1564,7 +1564,7 @@ def build_mdl_model_from_fac(
             "program_name": meta.get("program_name", "Unknown Program"),
             "findings": []
         })
-        
+
         # If ALN is Unknown, try to fill from finding-level override (XLSX)
         if group.get("assistance_listing") in (None, "", "Unknown"):
             # use the original finding reference if available
@@ -1598,20 +1598,20 @@ def build_mdl_model_from_fac(
         # Get the full compliance type label (e.g., "Procurement and suspension and debarment")
         ctype_code = (f.get("type_requirement") or "").strip().upper()[:1]
         ctype_label = type_map.get(ctype_code) or ctype_code or ""
-        
+
         # Get the complete finding summary text
         complete_summary = text_by_ref.get(k, "")
-        
+
         # Match against standardized summaries - try OpenAI first with COMPLETE text
         matched_label = None
         if complete_summary:
             matched_label = (_best_summary_label_openai(complete_summary, summary_labels)
                            or _best_summary_label(complete_summary, summary_labels))
-        
+
         # Fallback to shortened summary if no match
         if not matched_label:
             matched_label = summary
-        
+
         logging.info(f"Finding {f.get('reference_number')}: {ctype_label} - {matched_label}")
         logging.info(f"Matched label: {matched_label}")
         #print("\n")
@@ -1669,7 +1669,7 @@ def build_mdl_model_from_fac(
     # If nothing grouped but we have refs, emit a catch-all
     if not programs_map and norm_refs:
         catchall = {"assistance_listing": "Unknown", "program_name": "Unknown Program", "findings": []}
-        
+
         for orig, key in norm_refs:
             # Get compliance type for THIS finding
             # Find the finding in fac_findings to get its type_requirement
@@ -1678,14 +1678,14 @@ def build_mdl_model_from_fac(
                 if _norm_ref(f.get("reference_number")) == key:
                     finding_data = f
                     break
-            
+
             if finding_data:
                 ctype_code = (finding_data.get("type_requirement") or "").strip().upper()[:1]
             else:
                 ctype_code = ""
-            
+
             ctype_label = type_map.get(ctype_code) or ctype_code or ""
-            
+
             # Get complete finding text and match
             complete_summary = text_by_ref.get(key, "")
             matched_label = None
@@ -1694,14 +1694,14 @@ def build_mdl_model_from_fac(
                             or _best_summary_label(complete_summary, summary_labels))
             if not matched_label:
                 matched_label = summarize_finding_text(complete_summary)
-            
+
             cap_text = cap_by_ref.get(key)
             qcost_det = "No questioned costs identified" if include_no_qc_line else "None"
             cap_det   = (
                 "Accepted" if (auto_cap_determination and cap_text)
                 else ("No CAP required" if include_no_cap_line else "Not Applicable")
             )
-            
+
             catchall["findings"].append({
                 "finding_id": orig,
                 "compliance_type": ctype_label,  # Full label like "Procurement and suspension and debarment"
@@ -1938,56 +1938,56 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
             for c in range(5):
                 cell = tbl.cell(r, c)
                 _clear_runs(cell.paragraphs[0])
-                
+
                 # Column-specific formatting
                 if c == 0:  # Finding ID
                     cell.paragraphs[0].add_run(f.get("finding_id", ""))
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    
+
                 elif c == 1:  # Compliance Type - Audit Finding (SPECIAL FORMATTING)
                     compliance_type = f.get("compliance_type", "")
                     summary = f.get("summary", "")
-                    
+
                     # Add compliance type in BOLD
                     if compliance_type:
                         bold_run = cell.paragraphs[0].add_run(compliance_type)
                         bold_run.bold = True
-                    
+
                     # Add hyphen with spaces
                     if compliance_type and summary:
                         cell.paragraphs[0].add_run(" - ")
                         cell.paragraphs[0].add_run("\n")
-                    
+
                     # Add summary (not bold)
                     if summary:
                         cell.paragraphs[0].add_run("\n")
                         cell.paragraphs[0].add_run(summary)
-                    
+
                     # Left align this column
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
-                    
+
                 elif c == 2:  # Audit Finding Determination
                     cell.paragraphs[0].add_run(f.get("audit_determination", "Sustained"))
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    
+
                 elif c == 3:  # Questioned Cost Determination
                     cell.paragraphs[0].add_run(f.get("questioned_cost_determination", "None"))
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    
+
                 elif c == 4:  # CAP Determination
                     cell.paragraphs[0].add_run(f.get("cap_determination", "Not Applicable"))
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-                
+
                 cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
                 #_tight_paragraph(cell.paragraphs[0])
-        
+
     else:
         cell = tbl.cell(1, 0)
         _clear_runs(cell.paragraphs[0])
         cell.paragraphs[0].add_run("—")
-    
+
     # FORMAT START
-    
+
     set_table_cell_margins(tbl, top_in=0.00, bottom_in=0.00, left_in=0.06, right_in=0.06)
 
     # ---- Program table formatting (ONLY if 5 columns) ----
@@ -2005,7 +2005,7 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
     set_table_bold_borders(tbl, size=12)
 
     # END FORMAT
-            
+
     return tbl
 
 # def _insert_program_tables_at_anchor(doc: Document, anchor_para: Paragraph, programs: List[Dict[str, Any]]):
@@ -2086,23 +2086,23 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 #     programs_sorted = sorted(programs or [], key=_al_key)
 
 #     last = anchor_para
-    
+
 #     # For SINGLE program: just insert table (header already exists in template)
 #     # For MULTIPLE programs: insert header + table for 2nd, 3rd, etc.
 #     for idx, p in enumerate(programs_sorted):
 #         al = p.get("assistance_listing", "Unknown")
 #         name = p.get("program_name", "Unknown Program")
-        
+
 #         # Only add header for 2nd+ programs (first uses the template header)
 #         if idx > 0:
 #             heading = f"Assistance Listing Number/Program Name: {al} / {name}"
 #             heading_para = doc.add_paragraph()
 #             _clear_runs(heading_para)
 #             heading_para.add_run(heading)
-            
+
 #             # Add spacing before the header
 #             heading_para.paragraph_format.space_before = Pt(12)
-            
+
 #             # Splice heading after 'last'
 #             heading_el = heading_para._p
 #             heading_el.getparent().remove(heading_el)
@@ -2123,7 +2123,7 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 #                 cap_title = doc.add_paragraph()
 #                 _clear_runs(cap_title)
 #                 cap_title.add_run(f"Corrective Action Plan – {f.get('finding_id','')}")
-                
+
 #                 cap_text_para = doc.add_paragraph()
 #                 _clear_runs(cap_text_para)
 #                 cap_text_para.add_run(cap_text)
@@ -2132,7 +2132,7 @@ def _build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 #                 cap_text_el = cap_text_para._p
 #                 cap_title_el.getparent().remove(cap_title_el)
 #                 cap_text_el.getparent().remove(cap_text_el)
-                
+
 #                 _insert_after(last, cap_title_el)
 #                 _insert_after(cap_title_el, cap_text_el)
 #                 last = cap_text_el
@@ -2169,32 +2169,32 @@ def _insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Para
     programs_sorted = sorted(programs or [], key=_al_key)
 
     last = anchor_para
-    
+
     # For SINGLE program: just insert table (header already exists in template)
     # For MULTIPLE programs: insert header + table for 2nd, 3rd, etc.
     for idx, p in enumerate(programs_sorted):
         al = p.get("assistance_listing", "Unknown")
         name = p.get("program_name", "Unknown Program")
-        
+
         # Only add header for 2nd+ programs (first uses the template header)
         if idx > 0:
             heading_para = doc.add_paragraph()
             _clear_runs(heading_para)
-            
+
             # Add bold header text
             header_run = heading_para.add_run("Assistance Listing Number/Program Name:")
             header_run.bold = True
-            
+
             # Add line break
             heading_para.add_run("\n")
-            
+
             # Add the ALN and program name (not bold)
             heading_para.add_run(f"{al} / {name}")
-            
+
             # ✅ KEY FIX: Tight spacing - no extra space before table
             _tight_paragraph(heading_para)
             heading_para.paragraph_format.space_before = Pt(12)  # Space from previous table only
-            
+
             # Splice heading after 'last'
             heading_el = heading_para._p
             heading_el.getparent().remove(heading_el)
@@ -2215,7 +2215,7 @@ def _insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Para
         #         cap_title = doc.add_paragraph()
         #         _clear_runs(cap_title)
         #         cap_title.add_run(f"Corrective Action Plan – {f.get('finding_id','')}")
-                
+
         #         cap_text_para = doc.add_paragraph()
         #         _clear_runs(cap_text_para)
         #         cap_text_para.add_run(cap_text)
@@ -2224,7 +2224,7 @@ def _insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Para
         #         cap_text_el = cap_text_para._p
         #         cap_title_el.getparent().remove(cap_title_el)
         #         cap_text_el.getparent().remove(cap_text_el)
-                
+
         #         _insert_after(last, cap_title_el)
         #         _insert_after(cap_title_el, cap_text_el)
         #         last = cap_text_el
@@ -2299,14 +2299,14 @@ def _format_name_standard_case(name: str) -> str:
     """
     if not name:
         return ""
-    
+
     clean = name.strip()
-    
+
     # Remove "The" or "the" if it exists at the beginning
     if clean.lower().startswith("the "):
         clean = clean[4:].strip()
-    
-    
+
+
     # If input is ALL CAPS (or mostly caps), normalize first
     letters = [ch for ch in clean if ch.isalpha()]
     if letters and sum(ch.isupper() for ch in letters) / len(letters) > 0.8:
@@ -2329,18 +2329,18 @@ def _format_name_standard_case(name: str) -> str:
 #     """
 #     # Get all paragraphs
 #     all_paras = list(doc.paragraphs)
-    
+
 #     # Find the index of the first label
 #     try:
 #         first_idx = all_paras.index(first_label)
 #     except ValueError:
 #         return  # Can't find it, give up
-    
+
 #     # Look for duplicates after the first one (within the next 5 paragraphs)
 #     for i in range(first_idx + 1, min(first_idx + 6, len(all_paras))):
 #         p = all_paras[i]
 #         text = _para_text(p)
-        
+
 #         # If this paragraph also starts with "Assistance Listing Number/Program Name"
 #         if "Assistance Listing Number/Program Name" in text:
 #             logging.info(f"🗑️  Removing duplicate header: {text[:80]}")
@@ -2354,18 +2354,18 @@ def _remove_duplicate_program_headers(doc: Document, first_label: Paragraph):
     """
     # Get all paragraphs
     all_paras = list(doc.paragraphs)
-    
+
     # Find the index of the first label
     try:
         first_idx = all_paras.index(first_label)
     except ValueError:
         return  # Can't find it, give up
-    
+
     # Look for duplicates after the first one (within the next 5 paragraphs)
     for i in range(first_idx + 1, min(first_idx + 6, len(all_paras))):
         p = all_paras[i]
         text = _para_text(p)
-        
+
         # If this paragraph also contains "Assistance Listing Number/Program Name"
         if "Assistance Listing Number/Program Name" in text:
             logging.info(f"🗑️  Removing duplicate header: {text[:80]}")
@@ -2523,10 +2523,10 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             first = progs[0]
             aln = (first.get("assistance_listing") or "").strip()
             pname = (first.get("program_name") or "").strip()
-            
+
             # Clear the paragraph and add formatted text
             _clear_runs(label_p)
-            
+
             # Add bold header text
             header_run = label_p.add_run("Assistance Listing Number/Program Name:")
             header_run.bold = True
@@ -2536,7 +2536,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             label_p.add_run(f"{aln} / {pname}")
             # ✅ KEY FIX: Set tight spacing - use _tight_paragraph for consistent removal
             _tight_paragraph(label_p)
-            
+
             # Add the ALN and program name (not bold)
             #label_p.add_run(f"{aln} / {pname}")
             # After creating label_p:
@@ -2616,12 +2616,12 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             # Pattern: "for [NAME], prepared by [AUDITOR] for the fiscal year"
             # This will match "for The City..." or "for City..." and replace with correct name
             pattern = r'(Treasury has reviewed the single audit report for )(The |the )?([^,]+)(, prepared by )(.+?)( for the fiscal year)'
-            
+
             def replacer(match):
                 return f"{match.group(1)}{correct_auditee}{match.group(4)}{correct_auditor}{match.group(6)}"
-            
+
             new_text = re.sub(pattern, replacer, text)
-            
+
             if new_text != text:
                 _clear_runs(p)
                 p.add_run(new_text)
@@ -2634,19 +2634,19 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         if "may appeal Treasury's decision" in text:
             # Remove "The" from beginning
             new_text = text
-            
+
             # Pattern: "The CITY..." or "The City..." at start
             new_text = re.sub(
                 r'^(The |THE )',
                 '',
                 new_text
             )
-            
+
             # Replace with correct formatted name
             # Pattern: [NAME] may appeal
             pattern = r'^([^,]+)(may appeal)'
             new_text = re.sub(pattern, f'{correct_auditee} \\2', new_text)
-            
+
             if new_text != text:
                 _clear_runs(p)
                 p.add_run(new_text)
@@ -2695,12 +2695,12 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         logging.info(f"✅ Narrative fixed + bolded auditee: {correct_auditee}")
         break
 
-    
+
     # ========== END FIX ==========
 
     # Adjust grammar depending on number of findings
     apply_mdl_grammar(doc, total_findings)
-    
+
     doc.save(bio)
     return bio.getvalue()
 
@@ -2779,7 +2779,7 @@ def _aln_overrides_from_summary(report_id: str):
     """
     url = f"https://app.fac.gov/dissemination/summary-report/xlsx/{report_id}"
     logging.info(f"📥 Downloading FAC summary from: {url}")
-    
+
     r = requests.get(url, timeout=20)
     r.raise_for_status()
 
@@ -2788,103 +2788,103 @@ def _aln_overrides_from_summary(report_id: str):
 
     aln_by_award = {}
     aln_by_finding = {}
-    
+
     logging.info(f"📑 Excel sheets available: {wb.sheetnames}")
-    
+
     # ============================================================
     # PART 1: Process FEDERALAWARD sheet
     # ============================================================
     if 'federalaward' in wb.sheetnames:
         ws_fed = wb['federalaward']
         logging.info(f"\n🔍 Processing 'federalaward' sheet (range: {ws_fed.dimensions})")
-        
+
         # Read headers from row 1
         headers = [str(cell.value or "").strip().lower() for cell in ws_fed[1]]
         logging.info(f"   Headers: {headers}")
-        
+
         # Find column indices
         try:
             i_award_ref = headers.index('award_reference')
             i_aln = headers.index('aln')
             i_program = headers.index('federal_program_name')
-            
+
             logging.info(f"   Column indices - award_ref:{i_award_ref}, aln:{i_aln}, program:{i_program}")
-            
+
             # Process data rows (starting from row 2)
             award_count = 0
             for row in ws_fed.iter_rows(min_row=2, values_only=True):
                 if not row or all(c is None for c in row):
                     continue
-                
+
                 award_ref = str(row[i_award_ref] or "").strip()
                 aln = str(row[i_aln] or "").strip()
                 program_name = str(row[i_program] or "").strip()
-                
+
                 # Validate ALN format (should be like 21.027)
                 if award_ref and aln and re.match(r'^\d{2}\.\d{3}', aln):
                     aln_by_award[award_ref] = aln
                     award_count += 1
                     logging.info(f"   ✅ Award: {award_ref} → {aln} ({program_name[:50]})")
-            
+
             logging.info(f"   📊 Processed {award_count} federal awards")
-            
+
         except ValueError as e:
             logging.warning(f"   ⚠️  Could not find required columns in federalaward sheet: {e}")
-    
+
     # ============================================================
     # PART 2: Process FINDING sheet
     # ============================================================
     if 'finding' in wb.sheetnames:
         ws_find = wb['finding']
         logging.info(f"\n🔍 Processing 'finding' sheet (range: {ws_find.dimensions})")
-        
+
         # Read headers from row 1
         headers = [str(cell.value or "").strip().lower() for cell in ws_find[1]]
         logging.info(f"   Headers: {headers}")
-        
+
         # Find column indices
         try:
             i_ref_num = headers.index('reference_number')
             i_aln = headers.index('aln')
             i_award_ref = headers.index('award_reference')
-            
+
             logging.info(f"   Column indices - ref_num:{i_ref_num}, aln:{i_aln}, award_ref:{i_award_ref}")
-            
+
             # Process data rows
             finding_count = 0
             for row in ws_find.iter_rows(min_row=2, values_only=True):
                 if not row or all(c is None for c in row):
                     continue
-                
+
                 ref_num = str(row[i_ref_num] or "").strip()
                 aln = str(row[i_aln] or "").strip()
                 award_ref = str(row[i_award_ref] or "").strip()
-                
+
                 # Validate ALN format
                 if ref_num and aln and re.match(r'^\d{2}\.\d{3}', aln):
                     aln_by_finding[ref_num] = aln
                     finding_count += 1
                     logging.info(f"   ✅ Finding: {ref_num} → {aln} (Award: {award_ref})")
-            
+
             logging.info(f"   📊 Processed {finding_count} findings")
-            
+
         except ValueError as e:
             logging.warning(f"   ⚠️  Could not find required columns in finding sheet: {e}")
-    
+
     logging.info(f"\n✅ FINAL RESULTS:")
     logging.info(f"   Award mappings: {len(aln_by_award)}")
     logging.info(f"   Finding mappings: {len(aln_by_finding)}")
-    
+
     if aln_by_award:
         logging.info(f"\n   Sample award mappings:")
         for k, v in list(aln_by_award.items())[:3]:
             logging.info(f"     {k} → {v}")
-    
+
     if aln_by_finding:
         logging.info(f"\n   Sample finding mappings:")
         for k, v in list(aln_by_finding.items())[:3]:
             logging.info(f"     {k} → {v}")
-    
+
     return aln_by_award, aln_by_finding
 
 # ------------------------------------------------------------------------------
@@ -3314,7 +3314,7 @@ def _rewrite_paragraph(p, text):
 def _iter_all_paragraphs(doc):
     for p in doc.paragraphs:
         yield p
-        
+
 def _iter_all_paragraphs_full(doc):
     # body
     for p in doc.paragraphs: yield p
@@ -3353,11 +3353,11 @@ def _email_postfix_cleanup(doc, email):
         t = _para_text(p)
         if not t:
             continue
-        
+
         new = pat_leading.sub("", t)
         if email and f"{email}.The" in new:
             new = new.replace(f"{email}.The", f"{email}. The")
-        
+
         if new != t:
             _rewrite_paragraph(p, new)
 
@@ -3393,15 +3393,15 @@ def _fix_treasury_email(doc, email: str):
 #     """Replace email text with clickable hyperlink."""
 #     if not email:
 #         return
-    
+
 #     for p in _iter_all_paragraphs_full(doc):
 #         text = _para_text(p)
-        
+
 #         # Find paragraphs containing the email
 #         if email in text and "email us at" in text.lower():
 #             # Split the text around the email
 #             parts = text.split(email)
-            
+
 #             if len(parts) == 2:
 #                 # Clear and rebuild with hyperlink
 #                 _clear_runs(p)
@@ -3414,36 +3414,36 @@ def _fix_treasury_email(doc, email: str):
 #     """Replace email text with clickable hyperlink - DEBUG VERSION."""
 #     if not email:
 #         return
-    
+
 #     email = email.strip()
 #     logging.info(f"🔍 Looking for email: {email}")
-    
+
 #     for p in _iter_all_paragraphs_full(doc):
 #         text = _para_text(p)
-        
+
 #         if email in text:
 #             logging.info(f"📧 Found email in: {text[:80]}...")
-            
+
 #             # Find position
 #             email_pos = text.find(email)
 #             text_before = text[:email_pos]
 #             text_after = text[email_pos + len(email):]
-            
+
 #             logging.info(f"   Before: '{text_before[-20:]}'")
 #             logging.info(f"   Email: '{email}'")
 #             logging.info(f"   After: '{text_after[:20]}'")
-            
+
 #             # Rebuild
 #             _clear_runs(p)
 #             if text_before:
 #                 p.add_run(text_before)
-            
+
 #             hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
 #             p._p.append(hyperlink)
-            
+
 #             if text_after:
 #                 p.add_run(text_after)
-            
+
 #             logging.info(f"   ✅ Hyperlink created")
 
 # def _replace_email_with_hyperlink(doc, email):
@@ -3453,31 +3453,31 @@ def _fix_treasury_email(doc, email: str):
 #     """
 #     if not email:
 #         return
-    
+
 #     email = email.strip()
-    
+
 #     for p in _iter_all_paragraphs_full(doc):
 #         text = _para_text(p)
-        
+
 #         if email not in text:
 #             continue
-        
+
 #         # Find email position
 #         email_start = text.find(email)
 #         if email_start == -1:
 #             continue
-        
+
 #         text_before = text[:email_start]
 #         text_after = text[email_start + len(email):]
-        
+
 #         # Clear paragraph
 #         p_element = p._p
-        
+
 #         # Remove all runs
 #         for child in list(p_element):
 #             if child.tag.endswith('}r') or child.tag.endswith('}hyperlink'):
 #                 p_element.remove(child)
-        
+
 #         # Add text before email
 #         if text_before:
 #             run1 = OxmlElement('w:r')
@@ -3486,11 +3486,11 @@ def _fix_treasury_email(doc, email: str):
 #             t1.text = text_before
 #             run1.append(t1)
 #             p_element.append(run1)
-        
+
 #         # Add hyperlink
 #         hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
 #         p_element.append(hyperlink)
-        
+
 #         # Add text after email
 #         if text_after:
 #             run2 = OxmlElement('w:r')
@@ -3499,7 +3499,7 @@ def _fix_treasury_email(doc, email: str):
 #             t2.text = text_after
 #             run2.append(t2)
 #             p_element.append(run2)
-        
+
 #         logging.info(f"✅ Email hyperlink inserted correctly")
 #         logging.info(f"   Before: '{text_before[-30:]}'")
 #         logging.info(f"   Email: '{email}'")
@@ -3512,37 +3512,37 @@ def _fix_treasury_email(doc, email: str):
 #     """
 #     if not email:
 #         return
-    
+
 #     email = email.strip()
-    
+
 #     for p in _iter_all_paragraphs_full(doc):
 #         text = _para_text(p)
-        
+
 #         # Check if email exists in this paragraph
 #         if email not in text:
 #             continue
-        
+
 #         # Find the position of the email
 #         email_pos = text.find(email)
 #         if email_pos == -1:
 #             continue
-        
+
 #         text_before = text[:email_pos]
 #         text_after = text[email_pos + len(email):]
-        
+
 #         logging.info(f"📧 Found email in paragraph")
 #         logging.info(f"   Before: ...{text_before[-40:]}")
 #         logging.info(f"   Email: {email}")
 #         logging.info(f"   After: {text_after[:40]}...")
-        
+
 #         # Get paragraph element
 #         p_elem = p._p
-        
+
 #         # Clear all existing content (runs and hyperlinks)
 #         for child in list(p_elem):
 #             if child.tag.endswith('}r') or child.tag.endswith('}hyperlink') or child.tag.endswith('}bookmarkStart') or child.tag.endswith('}bookmarkEnd'):
 #                 p_elem.remove(child)
-        
+
 #         # Rebuild in correct order
 #         # 1. Add text before email
 #         if text_before:
@@ -3552,11 +3552,11 @@ def _fix_treasury_email(doc, email: str):
 #             t_before.text = text_before
 #             run_before.append(t_before)
 #             p_elem.append(run_before)
-        
+
 #         # 2. Add hyperlink with email
 #         hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
 #         p_elem.append(hyperlink)
-        
+
 #         # 3. Add text after email
 #         if text_after:
 #             run_after = OxmlElement('w:r')
@@ -3565,7 +3565,7 @@ def _fix_treasury_email(doc, email: str):
 #             t_after.text = text_after
 #             run_after.append(t_after)
 #             p_elem.append(run_after)
-        
+
 #         logging.info(f"   ✅ Rebuilt paragraph with hyperlink in correct position")
 
 
@@ -3628,30 +3628,30 @@ def _replace_email_with_hyperlink(doc, email):
     """
     if not email:
         return
-    
+
     email = email.strip()
     replaced_count = 0
-    
+
     for p in _iter_all_paragraphs_full(doc):
         text = _para_text(p)
-        
+
         if email not in text:
             continue
-        
+
         parts = text.split(email)
-        
+
         if len(parts) < 2:
             continue
-        
+
         logging.info(f"📧 Found email in: {text[:80]}...")
-        
+
         p_elem = p._p
-        
+
         # Remove only runs and hyperlinks, keep pPr and other elements
         for child in list(p_elem):
             if child.tag.endswith('}r') or child.tag.endswith('}hyperlink'):
                 p_elem.remove(child)
-        
+
         # Append new content (pPr stays at the beginning automatically)
         for i, part in enumerate(parts):
             if part:
@@ -3661,14 +3661,14 @@ def _replace_email_with_hyperlink(doc, email):
                 t.text = part
                 run.append(t)
                 p_elem.append(run)
-            
+
             if i < len(parts) - 1:
                 hyperlink = _add_hyperlink(p, f"mailto:{email}", email)
                 p_elem.append(hyperlink)
                 replaced_count += 1
-        
+
         logging.info(f"   ✅ Replaced {len(parts) - 1} email occurrence(s) with hyperlink")
-    
+
     if replaced_count > 0:
         logging.info(f"✅ Total emails replaced with hyperlinks: {replaced_count}")
 
@@ -3690,11 +3690,11 @@ def _strip_leading_token_artifacts(doc):
 #         # Replace patterns without "The" with proper article
 #         # Pattern: "for City of Ann Arbor" -> "for The City of Ann Arbor"
 #         # Pattern: "prepared by REHMANN" -> "prepared by the Rehmann"
-        
+
 #         # Extract just the name without "The" for matching
 #         auditee_no_article = auditee_with_article.replace("The ", "", 1).replace("the ", "", 1)
 #         auditor_no_article = auditor_with_article.replace("the ", "", 1).replace("The ", "", 1)
-        
+
 #         new_t = t
 #         # Fix auditee (case-insensitive)
 #         if auditee_no_article:
@@ -3705,7 +3705,7 @@ def _strip_leading_token_artifacts(doc):
 #                 new_t,
 #                 flags=re.IGNORECASE
 #             )
-        
+
 #         # Fix auditor (case-insensitive)
 #         if auditor_no_article:
 #             # Match "prepared by [auditor]" and replace with "prepared by the [auditor]"
@@ -3715,7 +3715,7 @@ def _strip_leading_token_artifacts(doc):
 #                 new_t,
 #                 flags=re.IGNORECASE
 #             )
-        
+
 #         if new_t != t:
 #             _rewrite_paragraph(target, new_t)
 
@@ -3724,18 +3724,18 @@ def _fix_narrative_article(doc, auditee_exact: str, auditor_exact: str):
     target = _find_para_by_contains(doc, "Treasury has reviewed the single audit report for")
     if not target:
         return
-    
+
     text = _para_text(target)
-    
+
     # Pattern: "for [NAME], prepared by [AUDITOR] for the fiscal"
     import re
     pattern = r'(for\s+)([^,]+)(,\s+prepared by\s+)(.+?)(\s+for the fiscal year)'
-    
+
     def replacer(match):
         return f"{match.group(1)}{auditee_exact}{match.group(3)}{auditor_exact}{match.group(5)}"
-    
+
     new_text = re.sub(pattern, replacer, text, count=1)
-    
+
     if new_text != text:
         _rewrite_paragraph(target, new_text)
 
@@ -3744,14 +3744,14 @@ def _set_font_size_to_12(doc):
     for p in doc.paragraphs:
         for run in p.runs:
             run.font.size = Pt(12)
-    
+
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 for p in cell.paragraphs:
                     for run in p.runs:
                         run.font.size = Pt(12)
-    
+
     for section in doc.sections:
         for container in (section.header, section.footer):
             for p in container.paragraphs:
@@ -3880,7 +3880,7 @@ def set_table_cell_margins(tbl, top_in=0.06, bottom_in=0.06, left_in=0.06, right
         node.set(qn("w:type"), "dxa")
 
 def _set_cell_paragraph_spacing_before(cell, before_pt: float):
-    
+
     #Apply spacing-before to ALL paragraphs in a cell.
     for p in cell.paragraphs:
         p.paragraph_format.space_before = Pt(before_pt)
@@ -4101,6 +4101,7 @@ def postprocess_docx(doc_bytes: bytes, model: dict) -> bytes:
             # Fallback: just keep text
             p.add_run(text)
 
+        # FORCE font size to 12pt for entire paragraph
         _force_paragraph_font_size(p, 12)
 
         break
@@ -4289,9 +4290,9 @@ def build_mdl_docx_auto(req: BuildAuto):
             for a in federal_awards:
                 ar = (a.get("award_reference") or "").strip()
                 current_aln = (a.get("assistance_listing") or "").strip()
-                
+
                 logging.info(f"   Award {ar}: current ALN = '{current_aln}'")
-                
+
                 # If no ALN or it's 'Unknown', try to get from override
                 if (not current_aln or current_aln == "Unknown") and ar in aln_by_award:
                     a["assistance_listing"] = aln_by_award[ar]
@@ -4356,12 +4357,12 @@ def build_mdl_docx_auto(req: BuildAuto):
         #     if not name:
         #         return ""
         #     clean = name.strip()
-            
+
         #     # Apply title casing if the name is all caps
         #     if clean.isupper():
         #         # Use the existing _title_case or _title_with_acronyms function
         #         clean = _title_with_acronyms(clean, keep_all_caps=False)
-            
+
         #     # Add "the" if not present
         #     return clean if clean.lower().startswith("the ") else f"the {clean}"
 
@@ -4493,5 +4494,3 @@ async def log_requests(request: Request, call_next):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     logging.info("== Pydantic Validation Errors ==")
-    logging.info(exc.errors())
-    return JSONResponse(status_code=422, content={"ok": False, "errors": exc.errors()})        
