@@ -351,16 +351,6 @@ def _title_with_acronyms(s: str, keep_all_caps=True) -> str:
                 parts.append(w.capitalize())
     return " ".join(parts)
 
-@app.get("/local/{path:path}")
-def get_local_file(path: str):
-    full = os.path.join(LOCAL_SAVE_DIR, path)
-    if not os.path.isfile(full):
-        raise HTTPException(404, "Not found")
-    return FileResponse(
-        full,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
-
 # ------------------------------------------------------------------------------
 # FAC helpers
 # ------------------------------------------------------------------------------
@@ -3562,6 +3552,15 @@ class BuildRequest(BaseModel):
 def healthz():
     return {"ok": True, "service": "mdl-generator", "version": "2.0.0"}
 
+@app.get("/local/{path:path}")
+def get_local_file(path: str):
+    full = os.path.join(LOCAL_SAVE_DIR, path)
+    if not os.path.isfile(full):
+        raise HTTPException(404, "Not found")
+    return FileResponse(
+        full,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
 
 @app.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildRequest):
