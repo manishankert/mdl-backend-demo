@@ -381,10 +381,7 @@ def build_mdl_docx_auto(req: BuildAuto):
 
         logging.info(f"Using auditee_name from latest FAC year ({latest_year}): {effective_auditee_name}")
 
-        # Use latest data for auditor/auditee info
-        gen_for_auditor_info = gen_latest
-
-        # 1b) Find report_id for the INPUT year (for findings data)
+        # 1b) Find report_id for the INPUT year (for findings data AND all other info except auditee_name)
         gen = fac_get("general", {
             "audit_year": f"eq.{req.audit_year}",
             "auditee_ein": f"eq.{req.ein}",
@@ -518,13 +515,14 @@ def build_mdl_docx_auto(req: BuildAuto):
         )
 
         # ---------- NEW: enrich headers from FAC + defaults ----------
-        # Use gen_for_auditor_info (latest available year) for auditor/auditee info
-        fac_defaults = from_fac_general(gen_for_auditor_info)
+        # Use INPUT year (gen) for all fields EXCEPT auditee_name and recipient_name
+        # Only auditee_name and recipient_name come from the LATEST year
+        fac_defaults = from_fac_general(gen)  # Use input year for address, auditor, POC, period_end
 
-        # auditee_name and recipient_name always come from the latest FAC year
-        raw_auditee = effective_auditee_name
-        raw_auditor = fac_defaults.get("auditor_name") or ""
-        logging.info(f"Using auditor/auditee info from year {gen_for_auditor_info[0].get('audit_year', 'unknown')} for EIN {req.ein}")
+        # auditee_name and recipient_name ONLY come from the latest FAC year
+        raw_auditee = effective_auditee_name  # From latest year
+        raw_auditor = fac_defaults.get("auditor_name") or ""  # From input year
+        logging.info(f"Using auditee_name/recipient from latest year ({latest_year}), all other info from input year ({req.audit_year})")
 
         # NEW CODE - Use standard case everywhere, no "The" article:
         recipient_formatted = format_name_standard_case(raw_auditee)
