@@ -159,20 +159,34 @@ class TestBuildAuto:
     """Tests for BuildAuto schema."""
 
     def test_build_auto_required_fields(self):
-        """Test BuildAuto requires auditee_name, ein, and audit_year."""
+        """Test BuildAuto requires only ein and audit_year (auditee_name is optional)."""
+        model = BuildAuto(ein="12-3456789", audit_year=2023)
+        assert model.ein == "12-3456789"
+        assert model.audit_year == 2023
+        assert model.auditee_name is None  # Optional, defaults to None
+
+    def test_build_auto_with_auditee_name(self):
+        """Test BuildAuto with optional auditee_name provided."""
         model = BuildAuto(auditee_name="Test City", ein="12-3456789", audit_year=2023)
         assert model.auditee_name == "Test City"
         assert model.ein == "12-3456789"
         assert model.audit_year == 2023
 
+    def test_build_auto_with_county_name(self):
+        """Test BuildAuto with optional county_name provided."""
+        model = BuildAuto(ein="12-3456789", audit_year=2023, county_name="Travis County")
+        assert model.county_name == "Travis County"
+
     def test_build_auto_defaults(self):
         """Test BuildAuto default values."""
-        model = BuildAuto(auditee_name="Test City", ein="12-3456789", audit_year=2023)
+        model = BuildAuto(ein="12-3456789", audit_year=2023)
         assert model.max_refs == 15
         assert model.only_flagged is False
         assert model.include_awards is True
         assert model.include_no_qc_line is True
         assert model.include_no_cap_line is False
+        assert model.auditee_name is None
+        assert model.county_name is None
 
     def test_build_auto_all_optional_fields(self):
         """Test BuildAuto with all optional fields."""

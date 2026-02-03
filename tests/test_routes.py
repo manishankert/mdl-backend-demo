@@ -227,12 +227,38 @@ class TestBuildMdlDocxAutoRoute:
     """Tests for /build-mdl-docx-auto endpoint."""
 
     @patch('routes.docx_routes.fac_get')
-    def test_build_mdl_docx_auto_no_report(self, mock_fac_get, test_client, set_test_env_vars):
-        """Test build-mdl-docx-auto endpoint when no report found."""
+    def test_build_mdl_docx_auto_no_fac_records(self, mock_fac_get, test_client, set_test_env_vars):
+        """Test build-mdl-docx-auto endpoint when no FAC records found for EIN."""
         mock_fac_get.return_value = []
 
         payload = {
-            "auditee_name": "Test City",
+            "ein": "123456789",
+            "audit_year": 2023
+        }
+
+        response = test_client.post("/build-mdl-docx-auto", json=payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is False
+        assert "No FAC records found" in data["message"]
+
+    @patch('routes.docx_routes.fac_get')
+    def test_build_mdl_docx_auto_no_report_for_year(self, mock_fac_get, test_client, set_test_env_vars):
+        """Test build-mdl-docx-auto endpoint when no report found for input year."""
+        mock_fac_get.side_effect = [
+            # First call: latest year (found)
+            [{
+                "report_id": "2024-06-GSAFAC-0000123456",
+                "audit_year": 2024,
+                "auditee_name": "Test City",
+                "fac_accepted_date": "2024-06-15"
+            }],
+            # Second call: input year (not found)
+            []
+        ]
+
+        payload = {
             "ein": "123456789",
             "audit_year": 2023
         }
@@ -243,18 +269,34 @@ class TestBuildMdlDocxAutoRoute:
         data = response.json()
         assert data["ok"] is False
         assert "No FAC report found" in data["message"]
+        assert "2023" in data["message"]
 
     @patch('routes.docx_routes.fac_get')
     @patch('routes.docx_routes.aln_overrides_from_summary')
     @patch('routes.docx_routes.build_docx_from_template')
     @patch('routes.docx_routes.postprocess_docx')
     @patch('routes.docx_routes.save_local_and_url')
-    def test_build_mdl_docx_auto_success(self, mock_save, mock_postprocess,
+    def test_build_mdl_docx_auto_success_minimal_input(self, mock_save, mock_postprocess,
                                           mock_build_template, mock_aln_overrides,
                                           mock_fac_get, test_client, set_test_env_vars):
-        """Test build-mdl-docx-auto endpoint success case."""
+        """Test build-mdl-docx-auto endpoint with minimal input (only ein and audit_year)."""
         mock_fac_get.side_effect = [
-            # First call: general info
+            # First call: latest year for auditee_name
+            [{
+                "report_id": "2024-06-GSAFAC-0000123456",
+                "audit_year": 2024,
+                "fac_accepted_date": "2024-06-15",
+                "auditee_address_line_1": "123 Main St",
+                "auditee_city": "Austin",
+                "auditee_state": "TX",
+                "auditee_zip": "78701",
+                "auditor_firm_name": "Test Auditors LLC",
+                "fy_end_date": "2024-06-30",
+                "auditee_contact_name": "John Doe",
+                "auditee_contact_title": "Finance Director",
+                "auditee_name": "Test City From FAC"
+            }],
+            # Second call: input year general info
             [{
                 "report_id": "2023-06-GSAFAC-0000123456",
                 "fac_accepted_date": "2023-06-15",
@@ -265,11 +307,74 @@ class TestBuildMdlDocxAutoRoute:
                 "auditor_firm_name": "Test Auditors LLC",
                 "fy_end_date": "2023-06-30",
                 "auditee_contact_name": "John Doe",
-                "auditee_contact_title": "Finance Director"
+                "auditee_contact_title": "Finance Director",
+                "auditee_name": "Test City Old Name"
             }],
-            # Second call: findings
+            # Third call: findings
             [],
-            # Third call: federal awards
+            # Fourth call: federal awards
+            []
+        ]
+        mock_aln_overrides.return_value = ({}, {})
+        mock_build_template.return_value = b"test document bytes"
+        mock_postprocess.return_value = b"processed document bytes"
+        mock_save.return_value = "http://localhost:8000/local/test.docx"
+
+        # Minimal payload - no auditee_name provided
+        payload = {
+            "ein": "123456789",
+            "audit_year": 2023
+        }
+
+        response = test_client.post("/build-mdl-docx-auto", json=payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert "url" in data
+
+    @patch('routes.docx_routes.fac_get')
+    @patch('routes.docx_routes.aln_overrides_from_summary')
+    @patch('routes.docx_routes.build_docx_from_template')
+    @patch('routes.docx_routes.postprocess_docx')
+    @patch('routes.docx_routes.save_local_and_url')
+    def test_build_mdl_docx_auto_success_with_auditee_name(self, mock_save, mock_postprocess,
+                                          mock_build_template, mock_aln_overrides,
+                                          mock_fac_get, test_client, set_test_env_vars):
+        """Test build-mdl-docx-auto endpoint success case with auditee_name provided."""
+        mock_fac_get.side_effect = [
+            # First call: latest year for auditee_name (FAC name takes precedence)
+            [{
+                "report_id": "2023-06-GSAFAC-0000123456",
+                "audit_year": 2023,
+                "fac_accepted_date": "2023-06-15",
+                "auditee_address_line_1": "123 Main St",
+                "auditee_city": "Austin",
+                "auditee_state": "TX",
+                "auditee_zip": "78701",
+                "auditor_firm_name": "Test Auditors LLC",
+                "fy_end_date": "2023-06-30",
+                "auditee_contact_name": "John Doe",
+                "auditee_contact_title": "Finance Director",
+                "auditee_name": "Test City From FAC"
+            }],
+            # Second call: input year general info
+            [{
+                "report_id": "2023-06-GSAFAC-0000123456",
+                "fac_accepted_date": "2023-06-15",
+                "auditee_address_line_1": "123 Main St",
+                "auditee_city": "Austin",
+                "auditee_state": "TX",
+                "auditee_zip": "78701",
+                "auditor_firm_name": "Test Auditors LLC",
+                "fy_end_date": "2023-06-30",
+                "auditee_contact_name": "John Doe",
+                "auditee_contact_title": "Finance Director",
+                "auditee_name": "Test City From FAC"
+            }],
+            # Third call: findings
+            [],
+            # Fourth call: federal awards
             []
         ]
         mock_aln_overrides.return_value = ({}, {})

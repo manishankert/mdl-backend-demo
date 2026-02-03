@@ -357,7 +357,34 @@ def build_mdl_docx_by_report_templated(req: BuildByReportTemplated):
 @router.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildAuto):
     try:
-        # 1) Find newest report_id for EIN/year (for findings data)
+        # 1a) Fetch the LATEST audit record for this EIN (regardless of year) for auditee_name and recipient_name
+        # These fields always come from the most recent available data
+        gen_latest = fac_get("general", {
+            "auditee_ein": f"eq.{req.ein}",
+            "select": "report_id, audit_year, fac_accepted_date, auditee_address_line_1, auditee_city, auditee_state, auditee_zip, auditor_firm_name, fy_end_date, auditee_contact_name, auditee_contact_title, auditee_name",
+            "order": "audit_year.desc,fac_accepted_date.desc",
+            "limit": 1
+        })
+
+        if not gen_latest:
+            return {"ok": False, "message": f"No FAC records found for EIN {req.ein}."}
+
+        latest_year = gen_latest[0].get("audit_year")
+        logging.info(f"Latest audit year for EIN {req.ein}: {latest_year} (input year: {req.audit_year})")
+
+        # Get auditee_name from latest year (primary source) or fall back to request
+        auditee_name_from_latest = gen_latest[0].get("auditee_name") or ""
+        effective_auditee_name = auditee_name_from_latest or req.auditee_name or ""
+
+        if not effective_auditee_name:
+            return {"ok": False, "message": f"Could not determine auditee name for EIN {req.ein}."}
+
+        logging.info(f"Using auditee_name from latest FAC year ({latest_year}): {effective_auditee_name}")
+
+        # Use latest data for auditor/auditee info
+        gen_for_auditor_info = gen_latest
+
+        # 1b) Find report_id for the INPUT year (for findings data)
         gen = fac_get("general", {
             "audit_year": f"eq.{req.audit_year}",
             "auditee_ein": f"eq.{req.ein}",
@@ -367,22 +394,6 @@ def build_mdl_docx_auto(req: BuildAuto):
         })
         if not gen:
             return {"ok": False, "message": f"No FAC report found for EIN {req.ein} in {req.audit_year}."}
-
-        # 1b) Fetch the LATEST audit record for this EIN (regardless of year) for auditor/auditee info
-        # Client requirement: auditor/recipient/auditee fields should reflect the most recent available data
-        gen_latest = fac_get("general", {
-            "auditee_ein": f"eq.{req.ein}",
-            "select": "report_id, audit_year, fac_accepted_date, auditee_address_line_1, auditee_city, auditee_state, auditee_zip, auditor_firm_name, fy_end_date, auditee_contact_name, auditee_contact_title, auditee_name",
-            "order": "audit_year.desc,fac_accepted_date.desc",
-            "limit": 1
-        })
-        # Use latest data for auditor info if available, otherwise fall back to the input year's data
-        if gen_latest:
-            latest_year = gen_latest[0].get("audit_year")
-            logging.info(f"Latest audit year for EIN {req.ein}: {latest_year} (input year: {req.audit_year})")
-            gen_for_auditor_info = gen_latest
-        else:
-            gen_for_auditor_info = gen
 
         report_id = gen[0]["report_id"]
         logging.info(f"Found report_id {report_id} for EIN {req.ein} in {req.audit_year}")
@@ -490,7 +501,7 @@ def build_mdl_docx_auto(req: BuildAuto):
 
         # ---------- NEW: build the model -------------
         mdl_model = build_mdl_model_from_fac(
-            auditee_name=req.auditee_name,
+            auditee_name=effective_auditee_name,
             ein=req.ein,
             audit_year=req.audit_year,
             fac_general=gen,
@@ -510,7 +521,8 @@ def build_mdl_docx_auto(req: BuildAuto):
         # Use gen_for_auditor_info (latest available year) for auditor/auditee info
         fac_defaults = from_fac_general(gen_for_auditor_info)
 
-        raw_auditee = gen_for_auditor_info[0].get("auditee_name") or req.auditee_name
+        # auditee_name and recipient_name always come from the latest FAC year
+        raw_auditee = effective_auditee_name
         raw_auditor = fac_defaults.get("auditor_name") or ""
         logging.info(f"Using auditor/auditee info from year {gen_for_auditor_info[0].get('audit_year', 'unknown')} for EIN {req.ein}")
 
@@ -571,7 +583,7 @@ def build_mdl_docx_auto(req: BuildAuto):
             return {"ok": False, "message": f"Unexpected template error: {e}"}
 
         # 5) Upload (unchanged)
-        base = f"MDL-{sanitize(req.auditee_name)}-{sanitize(req.ein)}-{req.audit_year}.docx"
+        base = f"MDL-{sanitize(effective_auditee_name)}-{sanitize(req.ein)}-{req.audit_year}.docx"
         blob_name = f"{dest_folder}{base}" if dest_folder else base
         url = upload_and_sas(AZURE_CONTAINER, blob_name, data) if AZURE_CONN_STR else save_local_and_url(blob_name, data)
 

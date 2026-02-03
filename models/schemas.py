@@ -53,9 +53,12 @@ class BuildByReportTemplated(BuildByReport):
 
 class BuildAuto(BaseModel):
     # required
-    auditee_name: str
     ein: str
     audit_year: int
+    county_name: Optional[str] = None  # Optional county identifier
+
+    # auditee_name is optional - if not provided, fetched from latest FAC year
+    auditee_name: Optional[str] = None
 
     # options (all optional)
     dest_path: Optional[str] = None
