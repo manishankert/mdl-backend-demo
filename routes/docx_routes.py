@@ -357,16 +357,32 @@ def build_mdl_docx_by_report_templated(req: BuildByReportTemplated):
 @router.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildAuto):
     try:
-        # 1) Find newest report_id for EIN/year
+        # 1) Find newest report_id for EIN/year (for findings data)
         gen = fac_get("general", {
             "audit_year": f"eq.{req.audit_year}",
             "auditee_ein": f"eq.{req.ein}",
-            "select": "report_id, fac_accepted_date, auditee_address_line_1, auditee_city, auditee_state, auditee_zip, auditor_firm_name, fy_end_date, auditee_contact_name,auditee_contact_title",
+            "select": "report_id, fac_accepted_date, auditee_address_line_1, auditee_city, auditee_state, auditee_zip, auditor_firm_name, fy_end_date, auditee_contact_name,auditee_contact_title, auditee_name",
             "order": "fac_accepted_date.desc",
             "limit": 1
         })
         if not gen:
             return {"ok": False, "message": f"No FAC report found for EIN {req.ein} in {req.audit_year}."}
+
+        # 1b) Fetch the LATEST audit record for this EIN (regardless of year) for auditor/auditee info
+        # Client requirement: auditor/recipient/auditee fields should reflect the most recent available data
+        gen_latest = fac_get("general", {
+            "auditee_ein": f"eq.{req.ein}",
+            "select": "report_id, audit_year, fac_accepted_date, auditee_address_line_1, auditee_city, auditee_state, auditee_zip, auditor_firm_name, fy_end_date, auditee_contact_name, auditee_contact_title, auditee_name",
+            "order": "audit_year.desc,fac_accepted_date.desc",
+            "limit": 1
+        })
+        # Use latest data for auditor info if available, otherwise fall back to the input year's data
+        if gen_latest:
+            latest_year = gen_latest[0].get("audit_year")
+            logging.info(f"Latest audit year for EIN {req.ein}: {latest_year} (input year: {req.audit_year})")
+            gen_for_auditor_info = gen_latest
+        else:
+            gen_for_auditor_info = gen
 
         report_id = gen[0]["report_id"]
         logging.info(f"Found report_id {report_id} for EIN {req.ein} in {req.audit_year}")
@@ -491,10 +507,12 @@ def build_mdl_docx_auto(req: BuildAuto):
         )
 
         # ---------- NEW: enrich headers from FAC + defaults ----------
-        fac_defaults = from_fac_general(gen)
+        # Use gen_for_auditor_info (latest available year) for auditor/auditee info
+        fac_defaults = from_fac_general(gen_for_auditor_info)
 
-        raw_auditee = gen[0].get("auditee_name") or req.auditee_name
+        raw_auditee = gen_for_auditor_info[0].get("auditee_name") or req.auditee_name
         raw_auditor = fac_defaults.get("auditor_name") or ""
+        logging.info(f"Using auditor/auditee info from year {gen_for_auditor_info[0].get('audit_year', 'unknown')} for EIN {req.ein}")
 
         # NEW CODE - Use standard case everywhere, no "The" article:
         recipient_formatted = format_name_standard_case(raw_auditee)
