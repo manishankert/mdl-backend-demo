@@ -55,7 +55,7 @@ def test_carson_ein():
     print("Step 1: Fetching all recent audit records...")
     params = {
         "auditee_ein": f"eq.{ein}",
-        "select": "report_id, audit_year, fac_accepted_date, auditee_name",
+        "select": "report_id, audit_year, fac_accepted_date, auditee_name, auditee_contact_name, auditee_contact_title",
         "order": "audit_year.desc,fac_accepted_date.desc",
         "limit": 10
     }
@@ -74,16 +74,22 @@ def test_carson_ein():
 
     # Display all available audits
     print(f"\nFound {len(all_audits)} audit records:\n")
-    print(f"{'Year':<8} {'Accepted Date':<15} {'Auditee Name':<40}")
-    print("-" * 65)
+    print(f"{'Year':<8} {'Accepted Date':<15} {'Auditee Name':<25} {'POC Name':<25} {'POC Title':<20}")
+    print("-" * 95)
 
     for audit in all_audits:
         year = audit.get("audit_year", "N/A")
         date = audit.get("fac_accepted_date", "N/A")[:10] if audit.get("fac_accepted_date") else "N/A"
         name = audit.get("auditee_name", "(empty)")
+        poc_name = audit.get("auditee_contact_name", "(empty)")
+        poc_title = audit.get("auditee_contact_title", "(empty)")
         if not name or not name.strip():
             name = "(empty)"
-        print(f"{year:<8} {date:<15} {name:<40}")
+        if not poc_name or not poc_name.strip():
+            poc_name = "(empty)"
+        if not poc_title or not poc_title.strip():
+            poc_title = "(empty)"
+        print(f"{year:<8} {date:<15} {name:<25} {poc_name:<25} {poc_title:<20}")
 
     # Step 2: Find latest record with valid auditee_name (NEW LOGIC)
     print(f"\n{'='*60}")
@@ -92,12 +98,16 @@ def test_carson_ein():
 
     gen_latest = None
     auditee_name_from_latest = ""
+    poc_name_from_latest = ""
+    poc_title_from_latest = ""
 
     for audit_record in all_audits:
         candidate_name = (audit_record.get("auditee_name") or "").strip()
         if candidate_name:
             gen_latest = audit_record
             auditee_name_from_latest = candidate_name
+            poc_name_from_latest = (audit_record.get("auditee_contact_name") or "").strip()
+            poc_title_from_latest = (audit_record.get("auditee_contact_title") or "").strip()
             break
 
     if gen_latest:
@@ -105,6 +115,8 @@ def test_carson_ein():
         print(f"✓ Found latest record with auditee_name:")
         print(f"  Year: {latest_year}")
         print(f"  Auditee Name: {auditee_name_from_latest}")
+        print(f"  POC Name: {poc_name_from_latest or '(empty)'}")
+        print(f"  POC Title: {poc_title_from_latest or '(empty)'}")
     else:
         print("✗ No record found with valid auditee_name!")
 
@@ -116,7 +128,7 @@ def test_carson_ein():
     params_input = {
         "audit_year": f"eq.{test_year}",
         "auditee_ein": f"eq.{ein}",
-        "select": "report_id, fac_accepted_date, auditee_name",
+        "select": "report_id, fac_accepted_date, auditee_name, auditee_contact_name, auditee_contact_title",
         "order": "fac_accepted_date.desc",
         "limit": 1
     }
@@ -127,24 +139,39 @@ def test_carson_ein():
 
     if gen_input:
         input_year_name = gen_input[0].get("auditee_name", "(empty)")
+        input_year_poc = gen_input[0].get("auditee_contact_name", "(empty)")
+        input_year_poc_title = gen_input[0].get("auditee_contact_title", "(empty)")
         print(f"Input year ({test_year}) auditee_name: {input_year_name}")
+        print(f"Input year ({test_year}) POC: {input_year_poc} ({input_year_poc_title})")
     else:
         print(f"No record found for input year {test_year}")
 
-    # Step 4: Summary - which name will be used?
+    # Step 4: Summary - which name and POC will be used?
     print(f"\n{'='*60}")
-    print("SUMMARY: AUDITEE NAME SOURCE VERIFICATION")
+    print("SUMMARY: AUDITEE NAME & POC SOURCE VERIFICATION")
     print(f"{'='*60}\n")
 
     if gen_latest and gen_input:
-        print(f"  Input year ({test_year}) auditee_name: {gen_input[0].get('auditee_name', '(empty)')}")
-        print(f"  Latest year ({latest_year}) auditee_name: {auditee_name_from_latest}")
-        print(f"\n  ➜ USING (from latest year {latest_year}): {auditee_name_from_latest}")
+        print(f"  AUDITEE NAME:")
+        print(f"    Input year ({test_year}): {gen_input[0].get('auditee_name', '(empty)')}")
+        print(f"    Latest year ({latest_year}): {auditee_name_from_latest}")
+        print(f"    ➜ USING (from latest year {latest_year}): {auditee_name_from_latest}")
 
         if gen_input[0].get('auditee_name') != auditee_name_from_latest:
-            print(f"\n  ⚠️  Names are DIFFERENT between years!")
+            print(f"    ⚠️  Names are DIFFERENT between years!")
         else:
-            print(f"\n  ✓ Names are the same between years")
+            print(f"    ✓ Names are the same between years")
+
+        print(f"\n  POINT OF CONTACT:")
+        print(f"    Input year ({test_year}): {gen_input[0].get('auditee_contact_name', '(empty)')} ({gen_input[0].get('auditee_contact_title', '(empty)')})")
+        print(f"    Latest year ({latest_year}): {poc_name_from_latest or '(empty)'} ({poc_title_from_latest or '(empty)'})")
+        print(f"    ➜ USING (from latest year {latest_year}): {poc_name_from_latest or '(empty)'} ({poc_title_from_latest or '(empty)'})")
+
+        input_poc = gen_input[0].get('auditee_contact_name', '')
+        if input_poc != poc_name_from_latest:
+            print(f"    ⚠️  POC names are DIFFERENT between years!")
+        else:
+            print(f"    ✓ POC names are the same between years")
 
     print(f"\n{'='*60}")
     print("Test completed successfully!")

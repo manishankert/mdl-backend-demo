@@ -397,7 +397,12 @@ def build_mdl_docx_auto(req: BuildAuto):
         if not effective_auditee_name:
             return {"ok": False, "message": f"Could not determine auditee name for EIN {req.ein}."}
 
+        # Get POC (Point of Contact) from latest year as well
+        poc_name_from_latest = (gen_latest.get("auditee_contact_name") or "").strip()
+        poc_title_from_latest = (gen_latest.get("auditee_contact_title") or "").strip()
+
         logging.info(f"Using auditee_name from latest FAC year ({latest_year}): {effective_auditee_name}")
+        logging.info(f"Using POC from latest FAC year ({latest_year}): {poc_name_from_latest} ({poc_title_from_latest})")
 
         # 1b) Find report_id for the INPUT year (for findings data AND all other info except auditee_name)
         gen = fac_get("general", {
@@ -533,21 +538,29 @@ def build_mdl_docx_auto(req: BuildAuto):
         )
 
         # ---------- NEW: enrich headers from FAC + defaults ----------
-        # Use INPUT year (gen) for all fields EXCEPT auditee_name and recipient_name
-        # Only auditee_name and recipient_name come from the LATEST year
-        fac_defaults = from_fac_general(gen)  # Use input year for address, auditor, POC, period_end
+        # Use INPUT year (gen) for: address, auditor, period_end
+        # Use LATEST year for: auditee_name, recipient_name, poc_name, poc_title
+        fac_defaults = from_fac_general(gen)  # Use input year for address, auditor, period_end
 
-        # auditee_name and recipient_name ONLY come from the latest FAC year
+        # auditee_name, recipient_name, and POC come from the LATEST FAC year
         raw_auditee = effective_auditee_name  # From latest year
         raw_auditor = fac_defaults.get("auditor_name") or ""  # From input year
+        raw_poc_name = poc_name_from_latest or req.poc_name or ""  # From latest year
+        raw_poc_title = poc_title_from_latest or req.poc_title or ""  # From latest year
 
-        # Critical logging: Verify auditee_name source
+        # Critical logging: Verify auditee_name and POC source
         input_year_auditee = gen[0].get("auditee_name") or "(empty)"
-        logging.info(f"=== AUDITEE NAME SOURCE VERIFICATION ===")
+        input_year_poc_name = gen[0].get("auditee_contact_name") or "(empty)"
+        input_year_poc_title = gen[0].get("auditee_contact_title") or "(empty)"
+        logging.info(f"=== AUDITEE NAME & POC SOURCE VERIFICATION ===")
         logging.info(f"  Input year ({req.audit_year}) auditee_name: {input_year_auditee}")
         logging.info(f"  Latest year ({latest_year}) auditee_name: {auditee_name_from_latest}")
-        logging.info(f"  USING (from latest year): {raw_auditee}")
-        logging.info(f"===========================================")
+        logging.info(f"  USING auditee_name (from latest year): {raw_auditee}")
+        logging.info(f"  ---")
+        logging.info(f"  Input year ({req.audit_year}) POC: {input_year_poc_name} ({input_year_poc_title})")
+        logging.info(f"  Latest year ({latest_year}) POC: {poc_name_from_latest} ({poc_title_from_latest})")
+        logging.info(f"  USING POC (from latest year): {raw_poc_name} ({raw_poc_title})")
+        logging.info(f"===============================================")
 
         # NEW CODE - Use standard case everywhere, no "The" article:
         recipient_formatted = format_name_standard_case(raw_auditee)
@@ -566,9 +579,9 @@ def build_mdl_docx_auto(req: BuildAuto):
             # auditor
             "auditor_name": auditor_formatted,  # use normalized name with "the" article
             "auditee_name": recipient_formatted,
-            # POC (title case name + title)
-            "poc_name": title_case(req.poc_name or fac_defaults.get("poc_name")),
-            "poc_title": req.poc_title or fac_defaults.get("poc_title"),
+            # POC (title case name + title) - from LATEST year
+            "poc_name": title_case(raw_poc_name),
+            "poc_title": raw_poc_title,
         }
 
         # apply non-empty values only
