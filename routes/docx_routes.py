@@ -357,23 +357,41 @@ def build_mdl_docx_by_report_templated(req: BuildByReportTemplated):
 @router.post("/build-mdl-docx-auto")
 def build_mdl_docx_auto(req: BuildAuto):
     try:
-        # 1a) Fetch the LATEST audit record for this EIN (regardless of year) for auditee_name and recipient_name
-        # These fields always come from the most recent available data
-        gen_latest = fac_get("general", {
+        # 1a) Fetch ALL audit records for this EIN to find the latest one with a valid auditee_name
+        # First, get multiple recent records (not just limit 1) so we can find one with auditee_name
+        all_audits = fac_get("general", {
             "auditee_ein": f"eq.{req.ein}",
             "select": "report_id, audit_year, fac_accepted_date, auditee_address_line_1, auditee_city, auditee_state, auditee_zip, auditor_firm_name, fy_end_date, auditee_contact_name, auditee_contact_title, auditee_name",
             "order": "audit_year.desc,fac_accepted_date.desc",
-            "limit": 1
+            "limit": 10  # Get multiple records to find one with valid auditee_name
         })
 
-        if not gen_latest:
+        if not all_audits:
             return {"ok": False, "message": f"No FAC records found for EIN {req.ein}."}
 
-        latest_year = gen_latest[0].get("audit_year")
-        logging.info(f"Latest audit year for EIN {req.ein}: {latest_year} (input year: {req.audit_year})")
+        # Log all available audit years for debugging
+        available_years = [str(a.get("audit_year")) for a in all_audits]
+        logging.info(f"Available audit years for EIN {req.ein}: {', '.join(available_years)}")
+
+        # Find the latest record that has a non-empty auditee_name
+        gen_latest = None
+        auditee_name_from_latest = ""
+        for audit_record in all_audits:
+            candidate_name = (audit_record.get("auditee_name") or "").strip()
+            if candidate_name:
+                gen_latest = audit_record
+                auditee_name_from_latest = candidate_name
+                break
+
+        # If no record has auditee_name, use the first record anyway
+        if not gen_latest:
+            gen_latest = all_audits[0]
+            logging.warning(f"No FAC records with valid auditee_name found for EIN {req.ein}, using first record")
+
+        latest_year = gen_latest.get("audit_year")
+        logging.info(f"Latest audit year WITH auditee_name for EIN {req.ein}: {latest_year} (input year: {req.audit_year})")
 
         # Get auditee_name from latest year (primary source) or fall back to request
-        auditee_name_from_latest = gen_latest[0].get("auditee_name") or ""
         effective_auditee_name = auditee_name_from_latest or req.auditee_name or ""
 
         if not effective_auditee_name:
@@ -522,7 +540,14 @@ def build_mdl_docx_auto(req: BuildAuto):
         # auditee_name and recipient_name ONLY come from the latest FAC year
         raw_auditee = effective_auditee_name  # From latest year
         raw_auditor = fac_defaults.get("auditor_name") or ""  # From input year
-        logging.info(f"Using auditee_name/recipient from latest year ({latest_year}), all other info from input year ({req.audit_year})")
+
+        # Critical logging: Verify auditee_name source
+        input_year_auditee = gen[0].get("auditee_name") or "(empty)"
+        logging.info(f"=== AUDITEE NAME SOURCE VERIFICATION ===")
+        logging.info(f"  Input year ({req.audit_year}) auditee_name: {input_year_auditee}")
+        logging.info(f"  Latest year ({latest_year}) auditee_name: {auditee_name_from_latest}")
+        logging.info(f"  USING (from latest year): {raw_auditee}")
+        logging.info(f"===========================================")
 
         # NEW CODE - Use standard case everywhere, no "The" article:
         recipient_formatted = format_name_standard_case(raw_auditee)
