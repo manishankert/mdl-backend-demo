@@ -248,6 +248,32 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 
     return tbl
 
+def dedupe_programs(programs: list[dict]) -> list[dict]:
+    seen = set()
+    out = []
+    for p in programs or []:
+        aln = (p.get("assistance_listing") or p.get("aln") or "").strip()
+        pname = (p.get("program_name") or p.get("program_title") or "").strip()
+        # If program name is blank, dedupe on ALN alone; otherwise ALN+name
+        key = (aln, pname) if pname else (aln,)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
+
+def dedupe_findings(findings: list[dict]) -> list[dict]:
+    seen = set()
+    out = []
+    for f in findings or []:
+        fid = (f.get("finding_id") or f.get("audit_finding") or "").strip()
+        if fid and fid in seen:
+            continue
+        if fid:
+            seen.add(fid)
+        out.append(f)
+    return out
+
 
 def insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Paragraph, programs: List[Dict[str, Any]]):
     """
@@ -266,12 +292,18 @@ def insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Parag
     # Delete any placeholder table immediately following the anchor
     delete_immediate_next_table(anchor_para)
 
+    # DEDUPE programs + findings BEFORE rendering tables
+    programs = dedupe_programs(programs or [])
+    for prog in programs:
+        prog["findings"] = dedupe_findings(prog.get("findings") or [])
+
     # Order programs by ALN
     def _al_key(p):
         return (p.get("assistance_listing") or "99.999")
     programs_sorted = sorted(programs or [], key=_al_key)
 
     last = anchor_para
+    
 
     # For SINGLE program: just insert table (header already exists in template)
     # For MULTIPLE programs: insert header + table for 2nd, 3rd, etc.
@@ -303,6 +335,8 @@ def insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Parag
             heading_el.getparent().remove(heading_el)
             insert_after(last, heading_el)
             last = heading_el
+
+  
 
         # Insert table
         tbl = build_program_table(doc, p)
