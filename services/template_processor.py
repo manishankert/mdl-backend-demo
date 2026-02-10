@@ -38,6 +38,30 @@ from services.document_editor import (
 
 logging.basicConfig(level=logging.INFO)
 
+# Words that must remain fully uppercase
+UPPERCASE_TOKENS = {
+    "LLC", "LLP", "PLLC", "PC", "PA", "INC", "CO", "CORP",
+    "CPA", "CPAs", "CFA", "EA",
+    "USA", "U.S.", "US",
+}
+
+def smart_title_case(text: str) -> str:
+    if not text:
+        return text
+
+    words = re.split(r"(\s+)", text.strip())  # preserve spacing
+    out = []
+
+    for w in words:
+        if w.strip().upper() in UPPERCASE_TOKENS:
+            out.append(w.strip().upper())
+        elif w.isupper():
+            out.append(w.capitalize())
+        else:
+            out.append(w)
+
+    return "".join(out)
+
 
 def iter_cells_in_table(tbl: Table):
     for row in tbl.rows:
@@ -579,17 +603,17 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     _, letter_date_long = format_letter_date(model.get("letter_date_iso"))
 
     # Header fields (defaults -> empty so placeholders never leak through)
-    auditee = (model.get("auditee_name")
+    auditee = smart_title_case((model.get("auditee_name")
                or model.get("recipient_name")
-               or "")
+               or ""))
     ein = model.get("ein", "") or ""
     street = model.get("street_address", "") or ""
     city = model.get("city", "") or ""
     state = model.get("state", "") or ""
     zipc = model.get("zip_code", "") or ""
-    poc = model.get("poc_name", "") or ""
-    poc_t = model.get("poc_title", "") or ""
-    auditor = model.get("auditor_name", "") or ""
+    poc = smart_title_case(model.get("poc_name", "") or "")
+    poc_t = smart_title_case(model.get("poc_title", "") or "")
+    auditor = smart_title_case(model.get("auditor_name", "") or "")
     logging.info(f"Auditor: {auditor}")
     logging.info(f"Auditee: {auditee}")
     logging.info(f"POC: {poc} ({poc_t})")
