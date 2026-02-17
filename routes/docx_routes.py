@@ -163,13 +163,14 @@ def build_docx_by_report(req: BuildByReport):
         "limit": 1
     })
 
+    findings_row_limit = max(req.max_refs * 20, 500)
     findings_params = {
         "report_id": f"eq.{req.report_id}",
         "select": "reference_number,award_reference,type_requirement,"
                   "is_material_weakness,is_significant_deficiency,is_questioned_costs,"
                   "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding",
         "order": "reference_number.asc",
-        "limit": str(req.max_refs)
+        "limit": str(findings_row_limit)
     }
     if req.only_flagged:
         flagged = [
@@ -179,7 +180,13 @@ def build_docx_by_report(req: BuildByReport):
         findings_params["or"] = "(" + ",".join([f"{f}.eq.true" for f in flagged]) + ")"
     fac_findings = fac_get("findings", findings_params)
 
-    refs = [row.get("reference_number") for row in fac_findings if row.get("reference_number")]
+    seen_refs = set()
+    refs = []
+    for row in fac_findings:
+        ref = row.get("reference_number")
+        if ref and ref not in seen_refs:
+            seen_refs.add(ref)
+            refs.append(ref)
     refs = refs[: req.max_refs]
 
     if refs:
@@ -243,13 +250,14 @@ def build_mdl_docx_by_report_templated(req: BuildByReportTemplated):
         })
 
         # 2) Findings
+        findings_row_limit = max(req.max_refs * 20, 500)
         findings_params = {
             "report_id": f"eq.{req.report_id}",
             "select": "reference_number,award_reference,type_requirement,"
                       "is_material_weakness,is_significant_deficiency,is_questioned_costs,"
                       "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding",
             "order": "reference_number.asc",
-            "limit": str(req.max_refs)
+            "limit": str(findings_row_limit)
         }
         if req.only_flagged:
             flagged = [
@@ -259,8 +267,14 @@ def build_mdl_docx_by_report_templated(req: BuildByReportTemplated):
             findings_params["or"] = "(" + ",".join([f"{f}.eq.true" for f in flagged]) + ")"
         fac_findings = fac_get("findings", findings_params)
 
-        # 3) refs
-        refs = [row.get("reference_number") for row in fac_findings if row.get("reference_number")]
+        # 3) refs - deduplicate (API returns one row per finding-per-award)
+        seen_refs = set()
+        refs = []
+        for row in fac_findings:
+            ref = row.get("reference_number")
+            if ref and ref not in seen_refs:
+                seen_refs.add(ref)
+                refs.append(ref)
         refs = refs[: req.max_refs]
 
         # 4) texts & CAPs
@@ -428,13 +442,19 @@ def build_mdl_docx_auto(req: BuildAuto):
         logging.info(aln_by_finding)
 
         # 2) Fetch findings / finding text / CAPs (ALWAYS initialize lists)
+        # NOTE: The FAC API returns one row per finding-per-award combination,
+        # so a single finding can produce 10+ rows.  Use a high row limit
+        # to ensure we capture all findings; the model builder deduplicates
+        # by unique reference_number and then applies max_refs.
+        effective_max_refs = req.max_refs or 15
+        findings_row_limit = max(effective_max_refs * 20, 500)  # high limit; deduplicate after
         findings_params = {
             "report_id": f"eq.{report_id}",
             "select": ("reference_number,award_reference,type_requirement,"
                        "is_material_weakness,is_significant_deficiency,is_questioned_costs,"
                        "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding"),
             "order": "reference_number.asc",
-            "limit": str(req.max_refs or 15),
+            "limit": str(findings_row_limit),
         }
         if req.only_flagged:
             flagged = [
@@ -448,9 +468,15 @@ def build_mdl_docx_auto(req: BuildAuto):
         except Exception:
             fac_findings = []
 
-        # refs are safe even if no findings
-        refs = [r.get("reference_number") for r in fac_findings if r.get("reference_number")]
-        refs = refs[: (req.max_refs or 15)]
+        # Deduplicate refs to unique finding numbers (API returns one row per finding-per-award)
+        seen_refs = set()
+        refs = []
+        for r in fac_findings:
+            ref = r.get("reference_number")
+            if ref and ref not in seen_refs:
+                seen_refs.add(ref)
+                refs.append(ref)
+        refs = refs[:effective_max_refs]
 
         # Always define these
         if refs:
@@ -478,6 +504,9 @@ def build_mdl_docx_auto(req: BuildAuto):
             fac_findings_text, fac_caps = [], []
 
         # Awards (optional, still safe)
+        # NOTE: The `assistance_listing` column only exists for newer FAC data.
+        # For older data (e.g. 2022), it doesn't exist and the query fails.
+        # Try with it first, then retry without it on failure.
         federal_awards = []
         if req.include_awards:
             try:
@@ -488,7 +517,16 @@ def build_mdl_docx_auto(req: BuildAuto):
                     "limit": "200",
                 }) or []
             except Exception:
-                federal_awards = []
+                try:
+                    logging.info("Retrying federal_awards without assistance_listing column")
+                    federal_awards = fac_get("federal_awards", {
+                        "report_id": f"eq.{report_id}",
+                        "select": "award_reference,federal_program_name",
+                        "order": "award_reference.asc",
+                        "limit": "200",
+                    }) or []
+                except Exception:
+                    federal_awards = []
 
         # APPLY ALN OVERRIDES BEFORE BUILDING MODEL
         if federal_awards and aln_by_award:
