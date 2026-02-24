@@ -174,7 +174,7 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
     findings = program.get("findings", []) or []
     rows = max(1, len(findings)) + 1
 
-    tbl = doc.add_table(rows=rows, cols=5)  # Fixed to 5 columns
+    tbl = doc.add_table(rows=rows, cols=6)  # 6 columns (added Repeat Finding)
     _style = pick_table_style(doc)
     if _style:
         try:
@@ -189,6 +189,7 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
         "Audit Finding\nDetermination",
         "Questioned Cost\nDetermination",
         "CAP\nDetermination",
+        "Repeat\nFinding",
     ]
     for i, h in enumerate(headers):
         cell = tbl.cell(0, i)
@@ -201,7 +202,7 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 
     if findings:
         for r, f in enumerate(findings, start=1):
-            for c in range(5):
+            for c in range(6):
                 cell = tbl.cell(r, c)
                 clear_runs(cell.paragraphs[0])
 
@@ -244,6 +245,10 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
                     cell.paragraphs[0].add_run(f.get("cap_determination", "Not Applicable"))
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
+                elif c == 5:  # Repeat Finding
+                    cell.paragraphs[0].add_run("Yes" if f.get("is_repeat_finding") else "No")
+                    cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
                 cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
 
     else:
@@ -260,7 +265,7 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
     for r in tbl.rows:
         set_row_height_and_allow_break(r, height_in=0.49, allow_break_across_pages=True)
 
-    set_table_column_widths(tbl, [0.83, 1.59, 1.2, 1.44, 1.19])
+    set_table_column_widths(tbl, [0.73, 1.39, 1.0, 1.24, 1.09, 0.80])
     # ---- end program table formatting ----
 
     # SPACING MUST BE LAST so nothing overwrites it
@@ -446,7 +451,7 @@ def cleanup_post_table_narrative(doc, model):
     # Regex patterns that match the repeated narrative blocks in the body
     starts = [
         r"^\d{4}-\d{3}\s*-\s*",
-        r"^\d{4}-\d{3}\s*[--]\s*",
+        r"^\d{4}-\d{3}\s*[\u2013\u2014]\s*",
         r"^Auditor\s+Description\s+of\s+Condition",
         r"^Auditor\s+Recommendation\.?",
         r"^Responsible\s+Person\s*:",
@@ -729,6 +734,11 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     except Exception:
         pass
 
+    # Deterministic grammar fix: resolve [is/are], [The], (s), (es) tokens
+    # MUST run BEFORE _strip_leftovers_in_container which strips all [...] patterns
+    total_findings = sum(len(prog.get("findings") or []) for prog in (model.get("programs") or []))
+    apply_mdl_grammar(doc, total_findings)
+
     # Final tidy: strip any *remaining* token patterns like ${...} or [...]
     def _strip_leftovers_in_container(container):
         for p in iter_all_paragraphs_in_container(container):
@@ -842,10 +852,6 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
 
         logging.info(f"Narrative fixed + bolded auditee: {correct_auditee}")
         break
-
-    # Adjust grammar depending on number of findings
-    total_findings = sum(len(prog.get("findings") or []) for prog in (model.get("programs") or []))
-    apply_mdl_grammar(doc, total_findings)
 
     doc.save(bio)
     return bio.getvalue()

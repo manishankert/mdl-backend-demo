@@ -64,9 +64,9 @@ class TestShortText:
     def test_short_text_over_limit(self):
         """Test short_text truncates text over limit and adds ellipsis."""
         result = short_text("a" * 100, 50)
-        # Function truncates to limit-1 chars then adds "..." (3 chars)
-        # So result is (limit-1) + 3 = limit + 2 chars
-        assert result.endswith("...")
+        # Function truncates to limit-1 chars then adds unicode ellipsis (1 char)
+        assert result.endswith("\u2026")
+        assert len(result) == 50  # limit-1 + 1 ellipsis char
         assert len(result) < 100  # Should be truncated from original
 
     def test_short_text_exact_limit(self):
@@ -91,7 +91,7 @@ class TestShortText:
         result = short_text("a" * 1000)
         # Should be truncated from 1000 chars
         assert len(result) < 1000
-        assert result.endswith("...")
+        assert result.endswith("\u2026")
 
 
 class TestNormRef:

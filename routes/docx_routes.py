@@ -570,7 +570,7 @@ def build_mdl_docx_auto(req: BuildAuto):
             only_flagged=req.only_flagged,
             max_refs=req.max_refs,
             include_no_qc_line=True,
-            treasury_listings=["21.027", "21.023", "21.026"],
+            treasury_listings=req.treasury_listings or ["21.027", "21.023", "21.026"],
             aln_reference_xlsx=aln_xlsx,
             aln_overrides_by_finding=aln_by_finding,
         )

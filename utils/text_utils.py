@@ -13,7 +13,7 @@ def short_text(s: Optional[str], limit: int = 900) -> str:
     if not s:
         return ""
     s = re.sub(r"\s+", " ", s.strip())
-    return (s[: limit - 1] + "...") if len(s) > limit else s
+    return (s[: limit - 1] + "\u2026") if len(s) > limit else s
 
 
 def norm_ref(x: Optional[str]) -> str:

@@ -514,6 +514,7 @@ def build_mdl_model_from_fac(
             "disallowed_cost_determination": "None",
             "cap_determination": cap_det,
             "cap_text": cap_text,
+            "is_repeat_finding": f.get("is_repeat_finding") is True,
         })
 
     # If nothing grouped but we have refs, emit a catch-all
@@ -559,6 +560,7 @@ def build_mdl_model_from_fac(
                 "disallowed_cost_determination": "None",
                 "cap_determination": cap_det,
                 "cap_text": cap_text,
+                "is_repeat_finding": finding_data.get("is_repeat_finding") is True if finding_data else False,
             })
         programs_map["UNKNOWN"] = catchall
 
@@ -608,6 +610,7 @@ def render_mdl_html(model: Dict[str, Any]) -> str:
     def _render_program_table(p: Dict[str, Any]) -> str:
         rows_html = []
         for f in p.get("findings", []):
+            repeat = "Yes" if f.get("is_repeat_finding") else "No"
             rows_html.append(f"""
               <tr>
                 <td>{html.escape(f.get('finding_id',''))}</td>
@@ -615,11 +618,12 @@ def render_mdl_html(model: Dict[str, Any]) -> str:
                 <td>{html.escape(f.get('audit_determination',''))}</td>
                 <td>{html.escape(f.get('questioned_cost_determination',''))}</td>
                 <td>{html.escape(f.get('cap_determination',''))}</td>
+                <td>{html.escape(repeat)}</td>
               </tr>
             """)
         if not rows_html:
             rows_html.append("""
-              <tr><td colspan="5"><em>No MDL-relevant findings identified for this program.</em></td></tr>
+              <tr><td colspan="6"><em>No MDL-relevant findings identified for this program.</em></td></tr>
             """)
         table = f"""
           <table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%; font-size:10.5pt;">
@@ -629,6 +633,7 @@ def render_mdl_html(model: Dict[str, Any]) -> str:
               <th>Audit Finding<br>Determination</th>
               <th>Questioned Cost<br>Determination</th>
               <th>CAP<br>Determination</th>
+              <th>Repeat<br>Finding</th>
             </tr>
             {''.join(rows_html)}
           </table>
@@ -638,7 +643,7 @@ def render_mdl_html(model: Dict[str, Any]) -> str:
             cap_text = f.get("cap_text")
             if cap_text:
                 cap_blocks.append(f"""
-                  <h4>Corrective Action Plan - {html.escape(f.get('finding_id',''))}</h4>
+                  <h4>Corrective Action Plan – {html.escape(f.get('finding_id',''))}</h4>
                   <p>{html.escape(cap_text)}</p>
                 """)
         return table + ("\n".join(cap_blocks) if cap_blocks else "")
@@ -676,9 +681,9 @@ def render_mdl_html(model: Dict[str, Any]) -> str:
     """)
     chunks.append("""
       <p>
-        In accordance with 2 C.F.R. 200.521(b), the U.S. Department of the Treasury (Treasury)
+        In accordance with 2 C.F.R. § 200.521(b), the U.S. Department of the Treasury (Treasury)
         is required to issue a management decision for single audit findings pertaining to awards under
-        Treasury's programs. Treasury's review as part of its responsibilities under 2 C.F.R 200.513(c)
+        Treasury's programs. Treasury's review as part of its responsibilities under 2 C.F.R. § 200.513(c)
         includes an assessment of Treasury's award recipients' single audit findings, corrective action plans (CAPs),
         and questioned costs, if any.
       </p>
