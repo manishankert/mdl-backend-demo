@@ -31,3 +31,4 @@ __azurite_db_queue_extent__.json
 .gitignore
 .DS_Store
 AzuriteConfig
+_out/*
