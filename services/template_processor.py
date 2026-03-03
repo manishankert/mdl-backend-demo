@@ -36,6 +36,9 @@ from services.document_editor import (
     ai_fix_pluralization_in_doc,
 )
 
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+
 logging.basicConfig(level=logging.INFO)
 
 # Words that must remain fully uppercase
@@ -44,6 +47,38 @@ UPPERCASE_TOKENS = {
     "CPA", "CPAs", "CFA", "EA",
     "USA", "U.S.", "US",
 }
+
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+def render_questioned_cost_cell(cell, value: str):
+
+    # Normalize input
+    v = (value or "").strip()
+
+    lines = [ln.strip() for ln in v.splitlines() if ln.strip()] if v else []
+
+    if not lines:
+        lines = ["Questioned Cost:", "None", "Disallowed Cost:", "None"]
+
+    cell.text = ""
+    paras = []
+
+    # First paragraph
+    p0 = cell.paragraphs[0]
+    p0.text = lines[0]
+    paras.append(p0)
+
+    # Remaining paragraphs
+    for ln in lines[1:]:
+        paras.append(cell.add_paragraph(ln))
+
+    for p in paras:
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(0)
+
+    paras[-1].paragraph_format.space_after = Pt(12)
 
 def smart_title_case(text: str) -> str:
     if not text:
@@ -174,7 +209,8 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
     findings = program.get("findings", []) or []
     rows = max(1, len(findings)) + 1
 
-    tbl = doc.add_table(rows=rows, cols=6)  # 6 columns (added Repeat Finding)
+    #tbl = doc.add_table(rows=rows, cols=6)  # 6 columns (added Repeat Finding)
+    tbl = doc.add_table(rows=rows, cols=5)  # 6 columns (added Repeat Finding)
     _style = pick_table_style(doc)
     if _style:
         try:
@@ -189,7 +225,7 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
         "Audit Finding\nDetermination",
         "Questioned Cost\nDetermination",
         "CAP\nDetermination",
-        "Repeat\nFinding",
+        #"Repeat\nFinding",
     ]
     for i, h in enumerate(headers):
         cell = tbl.cell(0, i)
@@ -202,7 +238,8 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 
     if findings:
         for r, f in enumerate(findings, start=1):
-            for c in range(6):
+            #for c in range(6):
+            for c in range(5):
                 cell = tbl.cell(r, c)
                 clear_runs(cell.paragraphs[0])
 
@@ -238,16 +275,17 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
                 elif c == 3:  # Questioned Cost Determination
-                    cell.paragraphs[0].add_run(f.get("questioned_cost_determination", "None"))
-                    cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    #cell.paragraphs[0].add_run(f.get("questioned_cost_determination", "None"))
+                    render_questioned_cost_cell(cell, f.get("questioned_cost_determination", ""))
+                    #cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
                 elif c == 4:  # CAP Determination
                     cell.paragraphs[0].add_run(f.get("cap_determination", "Not Applicable"))
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-                elif c == 5:  # Repeat Finding
-                    cell.paragraphs[0].add_run("Yes" if f.get("is_repeat_finding") else "No")
-                    cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                #elif c == 5:  # Repeat Finding
+                 #   cell.paragraphs[0].add_run("Yes" if f.get("is_repeat_finding") else "No")
+                  #  cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
                 cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
 
@@ -265,7 +303,8 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
     for r in tbl.rows:
         set_row_height_and_allow_break(r, height_in=0.49, allow_break_across_pages=True)
 
-    set_table_column_widths(tbl, [0.73, 1.39, 1.0, 1.24, 1.09, 0.80])
+    #set_table_column_widths(tbl, [0.73, 1.39, 1.0, 1.24, 1.09, 0.80])
+    set_table_column_widths(tbl, [0.83, 1.59, 1.2, 1.44, 1.19])
     # ---- end program table formatting ----
 
     # SPACING MUST BE LAST so nothing overwrites it
@@ -303,6 +342,20 @@ def dedupe_findings(findings: list[dict]) -> list[dict]:
         out.append(f)
     return out
 
+def dedupe_model_programs_and_findings(model: Dict[str, Any]) -> int:
+    """
+    Mutates model['programs'] to remove duplicate programs and duplicate findings.
+    Returns total_findings AFTER dedupe.
+    """
+    programs = model.get("programs") or []
+    programs = dedupe_programs(programs)
+
+    for prog in programs:
+        prog["findings"] = dedupe_findings(prog.get("findings") or [])
+
+    model["programs"] = programs
+
+    return sum(len(p.get("findings") or []) for p in programs)
 
 def insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Paragraph, programs: List[Dict[str, Any]]):
     """
@@ -322,9 +375,9 @@ def insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Parag
     delete_immediate_next_table(anchor_para)
 
     # DEDUPE programs + findings BEFORE rendering tables
-    programs = dedupe_programs(programs or [])
+    '''programs = dedupe_programs(programs or [])
     for prog in programs:
-        prog["findings"] = dedupe_findings(prog.get("findings") or [])
+        prog["findings"] = dedupe_findings(prog.get("findings") or [])'''
 
     # Order programs by ALN
     def _al_key(p):
@@ -670,6 +723,10 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         "${treasury_contact_email}": f" {email} "
     })
 
+    # After you load/prepare model + mapping replacements, before table insertion/plurals:
+    total_findings = dedupe_model_programs_and_findings(model)
+    programs = model.get("programs") or []
+
     # 1) Replace placeholders everywhere (body + headers/footers + nested tables)
     replace_placeholders_docwide(doc, mapping)
     # 2) Fix questioned costs grammar
@@ -759,7 +816,6 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         _strip_leftovers_in_container(sec.header)
         _strip_leftovers_in_container(sec.footer)
 
-    # ADD THIS LINE HERE:
     set_font_size_to_12(doc)
 
     # ========== FORCE FIX NARRATIVE PARAGRAPH ==========
