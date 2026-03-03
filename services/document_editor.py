@@ -147,6 +147,8 @@ def fix_mdl_grammar_text(text: str, n_findings: int) -> str:
     out = re.sub(r"\(s\)", "" if singular else "s", out)
     out = re.sub(r"\bviolate\s*\(s\)\b", "violates" if singular else "violate", out, flags=re.IGNORECASE)
     out = re.sub(r"\bappear\s*\(s\)\b", "appears" if singular else "appear", out, flags=re.IGNORECASE)
+    out = re.sub(r"\b(audit findings)\s+appears\b", r"\1 appear", out, flags=re.IGNORECASE)
+    out = re.sub(r"\b(audit finding)\s+appear\b", r"\1 appears", out, flags=re.IGNORECASE)    
     out = re.sub(r"\baddress\s*\(es\)\b", "addresses" if singular else "address", out, flags=re.IGNORECASE)
     out = re.sub(r"\baddresses\s*\(es\)\b", "addresses", out, flags=re.IGNORECASE)
     out = re.sub(r"\(es\)", "", out)

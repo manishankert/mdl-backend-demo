@@ -256,7 +256,7 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 
                 elif c == 1:  # Compliance Type - Audit Finding (SPECIAL FORMATTING)
                     compliance_type = f.get("compliance_type", "")
-                    summary = f.get("summary", "")
+                    summary = f.get("summary", "").strip()
 
                     # Add compliance type in BOLD
                     if compliance_type:
@@ -404,19 +404,15 @@ def insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Parag
             heading_para = doc.add_paragraph()
             clear_runs(heading_para)
 
-            # Add bold header text
             header_run = heading_para.add_run("Assistance Listing Number/Program Name:")
             header_run.bold = True
 
-            # Add line break
             heading_para.add_run("\n")
-
-            # Add the ALN and program name (not bold)
             heading_para.add_run(f"{al} / {name}")
 
-            # KEY FIX: Tight spacing - no extra space before table
             tight_paragraph(heading_para)
-            heading_para.paragraph_format.space_before = Pt(12)  # Space from previous table only
+            heading_para.paragraph_format.space_before = Pt(12)
+            heading_para.paragraph_format.space_after = Pt(8)
 
             # Splice heading after 'last'
             heading_el = heading_para._p
@@ -660,6 +656,19 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     """
     if not os.path.isfile(template_path):
         raise HTTPException(400, f"Template not found: {template_path}")
+    
+
+    # Narrow view: just the findings fields you care about
+    for pi, prog in enumerate(model.get("programs") or []):
+        logging.info(f"Program[{pi}]: aln={prog.get('assistance_listing')} name={prog.get('program_name')}")
+        for fi, f in enumerate(prog.get("findings") or []):
+            logging.info(
+                f"  Finding[{fi}]: id={f.get('finding_id')} | "
+                f"compliance_type={f.get('compliance_type')!r} | "
+                f"summary={f.get('summary')!r} | "
+                f"keys={list(f.keys())}"
+            )
+    # ── END DEBUG ────────────────────────────────────────────────────────────
 
     doc = Document(template_path)
 
@@ -754,7 +763,8 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         label_p = find_para_by_contains(doc, "Assistance Listing Number/Program Name")
         progs = model.get("programs") or []
         if label_p is not None and progs:
-            first = progs[0]
+            progs_sorted = sorted(progs, key=lambda p: p.get("assistance_listing") or "99.999")
+            first = progs_sorted[0]
             aln = (first.get("assistance_listing") or "").strip()
             pname = (first.get("program_name") or "").strip()
 
@@ -777,7 +787,10 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             # After creating table:
             logging.info(f"Table spacing check")
             # Remove any duplicate headers that follow
-            remove_duplicate_program_headers(doc, label_p)
+            # Only remove duplicate headers if there's exactly one program
+            # For multiple programs, each table needs its own header
+            if len(progs) == 1:
+                remove_duplicate_program_headers(doc, label_p)
     except Exception as e:
         logging.warning(f"Error handling program headers: {e}")
         pass
