@@ -48,6 +48,12 @@ UPPERCASE_TOKENS = {
     "USA", "U.S.", "US",
 }
 
+def ensure_leading_the(name: str) -> str:
+    name = (name or "").strip()
+    if not name:
+        return name
+    return name if name.lower().startswith("the ") else f"The {name}"
+
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
@@ -818,64 +824,17 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
 
     set_font_size_to_12(doc)
 
-    # ========== FORCE FIX NARRATIVE PARAGRAPH ==========
-    correct_auditee = model.get("auditee_name") or model.get("recipient_name") or ""
-    correct_auditor = model.get("auditor_name") or ""
-    # Ensure no "The" in auditee name
-    if correct_auditee.lower().startswith("the "):
-        correct_auditee = correct_auditee[4:].strip()
-
-    for p in doc.paragraphs:
-        text = para_text(p)
-        if "Treasury has reviewed the single audit report for" in text:
-            # Pattern: "for [NAME], prepared by [AUDITOR] for the fiscal year"
-            pattern = r'(Treasury has reviewed the single audit report for )(The |the )?([^,]+)(, prepared by )(.+?)( for the fiscal year)'
-
-            def replacer(match):
-                return f"{match.group(1)}{correct_auditee}{match.group(4)}{correct_auditor}{match.group(6)}"
-
-            new_text = re.sub(pattern, replacer, text)
-
-            if new_text != text:
-                clear_runs(p)
-                p.add_run(new_text)
-                logging.info(f"Fixed narrative: {correct_auditee}")
-            break
-
-    # ========== FIX APPEALS PARAGRAPH ==========
-    for p in doc.paragraphs:
-        text = para_text(p)
-        if "may appeal Treasury's decision" in text:
-            # Remove "The" from beginning
-            new_text = text
-
-            # Pattern: "The CITY..." or "The City..." at start
-            new_text = re.sub(
-                r'^(The |THE )',
-                '',
-                new_text
-            )
-
-            # Replace with correct formatted name
-            # Pattern: [NAME] may appeal
-            pattern = r'^([^,]+)(may appeal)'
-            new_text = re.sub(pattern, f'{correct_auditee} \\2', new_text)
-
-            if new_text != text:
-                clear_runs(p)
-                p.add_run(new_text)
-                logging.info(f"Fixed appeals paragraph - removed 'The'")
-            break
-
+    
     bio = BytesIO()
 
     # ========== FORCE FIX NARRATIVE PARAGRAPH (FINAL, BOLD-SAFE) ==========
-    correct_auditee = model.get("auditee_name") or model.get("recipient_name") or ""
+    #correct_auditee = model.get("auditee_name") or model.get("recipient_name") or ""
+    correct_auditee = ensure_leading_the(model.get("auditee_name") or model.get("recipient_name") or "")
     correct_auditor = model.get("auditor_name") or ""
 
     # Strip leading "The "
-    if correct_auditee.lower().startswith("the "):
-        correct_auditee = correct_auditee[4:].strip()
+    '''if correct_auditee.lower().startswith("the "):
+        correct_auditee = correct_auditee[4:].strip()'''
 
     for p in iter_all_paragraphs_in_container(doc):
         text = para_text(p)
@@ -884,8 +843,8 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             continue
 
         pattern = (
-            r'(Treasury has reviewed the single audit report for )'
-            r'(The |the )?(.+?)'
+            r'(Treasury has reviewed the single audit report for )(?:the )?'
+            r'(.+?)'
             r'(, prepared by )(.+?)'
             r'( for the fiscal year)'
         )
@@ -902,9 +861,9 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         r = p.add_run(correct_auditee)        # auditee
         r.bold = True                         # GUARANTEED bold
 
-        p.add_run(m.group(4))                 # ", prepared by "
+        p.add_run(m.group(3))                 # ", prepared by "
         p.add_run(correct_auditor)            # auditor
-        p.add_run(m.group(6))                 # trailing text
+        p.add_run(m.group(5))                 # trailing text
 
         logging.info(f"Narrative fixed + bolded auditee: {correct_auditee}")
         break
