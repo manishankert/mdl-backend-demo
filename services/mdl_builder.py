@@ -440,6 +440,7 @@ def build_mdl_model_from_fac(
         award_ref = f.get("award_reference") or "UNKNOWN"
         logging.info(f"Finding {r} -> award_ref: {award_ref}")
 
+
         # Try to get metadata from award lookup
         meta = award2meta.get(award_ref, {})
 
@@ -455,7 +456,23 @@ def build_mdl_model_from_fac(
 
         logging.info(f"   Final meta: {meta}")
 
-        group = programs_map.setdefault(award_ref, {
+        '''group = programs_map.setdefault(award_ref, {
+            "assistance_listing": meta.get("assistance_listing", "Unknown"),
+            "program_name": meta.get("program_name", "Unknown Program"),
+            "findings": []
+        })'''
+
+        aln_key = meta.get("assistance_listing") or award_ref
+        already_assigned_to_treasury = any(
+            any(f.get("finding_id") == r for f in g.get("findings", []))
+            for ak, g in programs_map.items()
+            if ak in (treasury_listings or [])
+        )
+        if already_assigned_to_treasury and aln_key not in (treasury_listings or []):
+            logging.info(f"Skipping {r} for {aln_key} — already assigned to a Treasury program")
+            continue
+
+        group = programs_map.setdefault(aln_key, {
             "assistance_listing": meta.get("assistance_listing", "Unknown"),
             "program_name": meta.get("program_name", "Unknown Program"),
             "findings": []

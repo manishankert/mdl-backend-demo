@@ -22,8 +22,19 @@ def fac_headers():
 
 def fac_get(path: str, params: Dict[str, Any]) -> Any:
     try:
-        r = requests.get(f"{FAC_BASE.rstrip('/')}/{path.lstrip('/')}",
-                         headers=fac_headers(), params=params, timeout=20)
+        url = f"{FAC_BASE.rstrip('/')}/{path.lstrip('/')}"
+        headers = fac_headers()
+        
+        # DEBUG: log full request before sending
+        import requests as _req
+        prepared = _req.Request("GET", url, headers=headers, params=params).prepare()
+        logging.info(f"FAC REQUEST: {prepared.url}")
+        
+        r = requests.get(url, headers=headers, params=params, timeout=20)
+        
+        # DEBUG: log response status + first 500 chars
+        logging.info(f"FAC RESPONSE [{path}] status={r.status_code} body={r.text[:500]}")
+        
         r.raise_for_status()
         return r.json()
     except requests.HTTPError as e:
