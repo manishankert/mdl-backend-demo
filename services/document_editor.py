@@ -235,12 +235,12 @@ def postprocess_docx(doc_bytes: bytes, model: dict) -> bytes:
             continue
 
         # Remove leading "the" before the auditee in the sentence
-        '''text = re.sub(
+        text = re.sub(
             r'(Treasury has reviewed the single audit report for )the\s+',
             r'\1',
             text,
             flags=re.IGNORECASE
-        )'''
+        )
         # Find the date in the paragraph
         date_in_doc = None
         if date_text and date_text in text:
