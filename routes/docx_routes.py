@@ -661,7 +661,7 @@ def build_mdl_docx_auto(req: BuildAuto):
         blob_name = f"{dest_folder}{base}" if dest_folder else base
         url = upload_and_sas(AZURE_CONTAINER, blob_name, data) if AZURE_CONN_STR else save_local_and_url(blob_name, data)
 
-        return {"ok": True, "url": url, "blob_path": f"{AZURE_CONTAINER}/{blob_name}"}
+        return {"ok": True, "url": url, "blob_path": f"{AZURE_CONTAINER}/{blob_name}", "auditee_name": effective_auditee_name }
 
     except HTTPException as e:
         return JSONResponse(status_code=200, content={"ok": False, "message": f"{e.status_code}: {e.detail}"})
