@@ -209,13 +209,13 @@ def build_mdl_model_from_fac(
         loaded_type_map, loaded_summary_labels = load_finding_mappings(aln_reference_xlsx)
         if loaded_type_map:  # Only override if we got data
             type_map = loaded_type_map
-            logging.info(f"Loaded type_map from Excel with {len(loaded_type_map)} entries")
+            #logging.info(f"Loaded type_map from Excel with {len(loaded_type_map)} entries")
         if loaded_summary_labels:
             summary_labels = loaded_summary_labels
             logging.info(f"Loaded {len(loaded_summary_labels)} summary labels from Excel")
 
-    logging.info(f"Final type_map: {type_map}")
-    logging.info(f"Looking up 'I': {type_map.get('I')}")
+    #logging.info(f"Final type_map: {type_map}")
+    #logging.info(f"Looking up 'I': {type_map.get('I')}")
 
     # --------- helpers ----------
     def _derive_assistance_listing(program_name: str, fallback: str = "Unknown") -> str:
@@ -348,8 +348,8 @@ def build_mdl_model_from_fac(
 
     # --------- load mapping once ----------
     aln_to_label, name_to_aln = _load_aln_mapping(aln_reference_xlsx)
-    logging.info(f"Loaded type_map: {type_map}")
-    logging.info(f"Loaded {len(summary_labels)} summary labels")
+    #.info(f"Loaded type_map: {type_map}")
+    #logging.info(f"Loaded {len(summary_labels)} summary labels")
 
     # --------- award lookups from FAC ----------
     award2meta: Dict[str, Dict[str, str]] = {}
@@ -378,9 +378,9 @@ def build_mdl_model_from_fac(
                 "assistance_listing": aln or "Unknown",
             }
 
-    logging.info(f"Built award2meta with {len(award2meta)} entries:")
+    '''logging.info(f"Built award2meta with {len(award2meta)} entries:")
     for k, v in award2meta.items():
-        logging.info(f" AWARDS {k}: {v}")
+        logging.info(f" AWARDS {k}: {v}")'''
 
     # --------- text / CAP lookups ----------
     text_by_ref = {
@@ -390,6 +390,10 @@ def build_mdl_model_from_fac(
     cap_by_ref = {
         norm_ref(c.get("finding_ref_number")): (c.get("planned_action") or "").strip()
         for c in (fac_caps or [])
+    }
+    prior_ref_by_ref = {
+        norm_ref(t.get("finding_ref_number")): (t.get("prior_references") or "").strip()
+        for t in (fac_findings_text or [])
     }
 
     def _is_flagged(f: dict) -> bool:
@@ -424,8 +428,9 @@ def build_mdl_model_from_fac(
         if k not in seen:
             seen.add(k)
             norm_refs.append((r, k))
-    norm_refs = norm_refs[: max_refs or 10]
-    chosen_keys = {kn for _, kn in norm_refs}
+    #norm_refs = norm_refs[: max_refs or 10]
+    #chosen_keys = {kn for _, kn in norm_refs}
+    chosen_keys = {kn for _, kn in norm_refs}  # use all refs
 
     # --------- group findings under award_reference ----------
     programs_map: Dict[str, Dict[str, Any]] = {}
@@ -438,7 +443,7 @@ def build_mdl_model_from_fac(
             continue
 
         award_ref = f.get("award_reference") or "UNKNOWN"
-        logging.info(f"Finding {r} -> award_ref: {award_ref}")
+        #logging.info(f"Finding {r} -> award_ref: {award_ref}")
 
 
         # Try to get metadata from award lookup
@@ -448,13 +453,13 @@ def build_mdl_model_from_fac(
         if not meta.get("assistance_listing") or meta.get("assistance_listing") == "Unknown":
             if aln_overrides_by_finding and r in aln_overrides_by_finding:
                 override_aln = aln_overrides_by_finding[r]
-                logging.info(f"   Using finding-level ALN override: {override_aln}")
+                #logging.info(f"   Using finding-level ALN override: {override_aln}")
                 meta["assistance_listing"] = override_aln
                 # Update program name if we have ALN mapping
                 if override_aln in aln_to_label:
                     meta["program_name"] = aln_to_label[override_aln]
 
-        logging.info(f"   Final meta: {meta}")
+        #logging.info(f"   Final meta: {meta}")
 
         '''group = programs_map.setdefault(award_ref, {
             "assistance_listing": meta.get("assistance_listing", "Unknown"),
@@ -469,7 +474,7 @@ def build_mdl_model_from_fac(
             if ak in (treasury_listings or [])
         )
         if already_assigned_to_treasury and aln_key not in (treasury_listings or []):
-            logging.info(f"Skipping {r} for {aln_key} — already assigned to a Treasury program")
+            #logging.info(f"Skipping {r} for {aln_key} — already assigned to a Treasury program")
             continue
 
         group = programs_map.setdefault(aln_key, {
@@ -515,14 +520,16 @@ def build_mdl_model_from_fac(
         if not matched_label:
             matched_label = summary
 
-        logging.info(f"Finding {f.get('reference_number')}: {ctype_label} - {matched_label}")
-        logging.info(f"Matched label: {matched_label}")
-        logging.info(f"Compliance type: {ctype_label}")
-        logging.info(f"Summary: {summary}")
-        logging.info(f" {ctype_label}, {summary}, {cap_text}, {qcost_det}, {cap_det}")
+        #logging.info(f"Finding {f.get('reference_number')}: {ctype_label} - {matched_label}")
+        #logging.info(f"Matched label: {matched_label}")
+        #logging.info(f"Compliance type: {ctype_label}")
+        #logging.info(f"Summary: {summary}")
+        #logging.info(f" {ctype_label}, {summary}, {cap_text}, {qcost_det}, {cap_det}")
 
         group["findings"].append({
             "finding_id": f.get("reference_number") or "",
+            "repeat_prior_reference": prior_ref_by_ref.get(k, ""),
+            "is_repeat_finding": f.get("is_repeat_finding") or False,
             "compliance_type": ctype_label,  # Full label: "Procurement and suspension and debarment"
             "summary": matched_label,  # Matched standardized summary
             "compliance_and_summary": f"{ctype_label} - {matched_label}".strip(" -"),  # Combined for display
@@ -588,10 +595,22 @@ def build_mdl_model_from_fac(
     # ----- Apply Treasury ALN filter AFTER canonicalization
     if treasury_listings:
         allowed = {(aln or "").strip() for aln in treasury_listings if aln}
-        logging.info(f" Treasury listings filter: {allowed}")
-        logging.info(f"  Programs before filter: {list(programs_map.keys())}")
+
+        logging.info(f"Programs map keys before filter: {list(programs_map.keys())}")
+        for k, v in programs_map.items():
+            logging.info(f"  {k}: aln={v.get('assistance_listing')} findings={len(v.get('findings',[]))}")
+
         programs_map = {k: v for k, v in programs_map.items() if v.get("assistance_listing") in allowed}
-        logging.info(f" Programs after filter: {list(programs_map.keys())}")
+
+    # NOW apply max_refs across remaining findings
+    total = 0
+    for grp in programs_map.values():
+        if total >= (max_refs or 10):
+            grp["findings"] = []
+        else:
+            remaining = (max_refs or 10) - total
+            grp["findings"] = grp["findings"][:remaining]
+            total += len(grp["findings"])
 
     # ----- Build final model
     model = {
