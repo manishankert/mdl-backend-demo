@@ -44,8 +44,16 @@ logging.basicConfig(level=logging.INFO)
 # Words that must remain fully uppercase
 UPPERCASE_TOKENS = {
     "LLC", "LLP", "PLLC", "PC", "PA", "INC", "CO", "CORP",
-    "CPA", "CPAs", "CFA", "EA",
+    "CPA", "CPA'S", "CPA\u2019S", "CPAS", "CPAs", "CFA", "EA",
     "USA", "U.S.", "US",
+    "CFO", "CEO", "COO", "CIO", "CAO", "VP", "HR", "IT",
+    "PKF", "EFPR",
+}
+
+LOWERCASE_WORDS = {
+    "a", "an", "the", "and", "or", "but", "nor", "for", "so", "yet",
+    "at", "by", "in", "of", "on", "to", "up", "as", "is", "it",
+    "with", "from", "into", "onto", "over", "than", "that",
 }
 
 def ensure_leading_the(name: str) -> str:
@@ -92,14 +100,42 @@ def smart_title_case(text: str) -> str:
 
     words = re.split(r"(\s+)", text.strip())  # preserve spacing
     out = []
+    first_word = True
 
     for w in words:
-        if w.strip().upper() in UPPERCASE_TOKENS:
-            out.append(w.strip().upper())
+        if not w.strip():
+            out.append(w)
+            continue
+        elif w.strip().rstrip(".,;:!?").upper() in UPPERCASE_TOKENS:
+            clean = w.strip().rstrip(".,;:!?")
+            suffix = w.strip()[len(clean):]
+            result = clean.upper().replace("'S", "'s").replace("\u2019S", "\u2019s")
+            out.append(result + suffix)
+        elif w.strip().lower() in LOWERCASE_WORDS and not first_word:
+            out.append(w.strip().lower())
+        elif "/" in w:
+            parts = w.split("/")
+            cased = []
+            for part in parts:
+                if not part:
+                    cased.append(part)
+                elif part.strip().upper() in UPPERCASE_TOKENS:
+                    result = part.strip().upper()
+                    result = result.replace("'S", "'s").replace("\u2019S", "\u2019s")
+                    cased.append(result)
+                elif part.strip().lower() in LOWERCASE_WORDS:
+                    cased.append(part.strip().lower())
+                elif part.isupper():
+                    cased.append(part.capitalize())
+                else:
+                    cased.append(part[0].upper() + part[1:] if part else part)
+            out.append("/".join(cased))
         elif w.isupper():
             out.append(w.capitalize())
         else:
             out.append(w)
+        logging.info(f"smart_title_case token: {repr(w)} -> upper={repr(w.strip().upper())} in_tokens={w.strip().upper() in UPPERCASE_TOKENS}")
+        first_word = False
 
     return "".join(out)
 
@@ -843,7 +879,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     # ========== FORCE FIX NARRATIVE PARAGRAPH (FINAL, BOLD-SAFE) ==========
     #correct_auditee = model.get("auditee_name") or model.get("recipient_name") or ""
     correct_auditee = ensure_leading_the(model.get("auditee_name") or model.get("recipient_name") or "")
-    correct_auditor = model.get("auditor_name") or ""
+    correct_auditor = smart_title_case(model.get("auditor_name") or "")
 
     # Strip leading "The "
     '''if correct_auditee.lower().startswith("the "):

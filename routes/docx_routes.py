@@ -406,7 +406,8 @@ def build_mdl_docx_auto(req: BuildAuto):
         logging.info(f"Latest audit year WITH auditee_name for EIN {req.ein}: {latest_year} (input year: {req.audit_year})")
 
         # Get auditee_name from latest year (primary source) or fall back to request
-        effective_auditee_name = auditee_name_from_latest or req.auditee_name or ""
+        #effective_auditee_name = auditee_name_from_latest or req.auditee_name or ""
+        effective_auditee_name = req.auditee_name or auditee_name_from_latest or ""
 
         if not effective_auditee_name:
             return {"ok": False, "message": f"Could not determine auditee name for EIN {req.ein}."}

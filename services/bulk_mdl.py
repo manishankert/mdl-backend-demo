@@ -48,6 +48,7 @@ def load_rows(xlsx_path: str) -> list[dict]:
 
     i_ein = find_col(["ein", "auditee_ein", "employer_identification"])
     i_year = find_col(["audit_year", "year", "fiscal_year"])
+    i_name = find_col(["auditee_name", "recipient_name", "name"])
 
     if i_ein is None or i_year is None:
         raise ValueError(f"Could not find required columns. Headers detected: {headers}")
@@ -63,17 +64,19 @@ def load_rows(xlsx_path: str) -> list[dict]:
         except (ValueError, TypeError):
             logging.warning(f"Skipping row — invalid year: {year}")
             continue
-        rows.append({"ein": ein, "audit_year": year})
+        name = str(row[i_name] or "").strip() if i_name is not None else ""
+        rows.append({"ein": ein, "audit_year": year, "auditee_name": name})
 
     logging.info(f"Loaded {len(rows)} rows from {xlsx_path}")
     return rows
 
 
-def call_endpoint(base_url: str, ein: str, audit_year: int) -> dict:
+def call_endpoint(base_url: str, ein: str, audit_year: int, auditee_name: str = "") -> dict:
     url = f"{base_url.rstrip('/')}/build-mdl-docx-auto"
     payload = {
         "ein": ein,
         "audit_year": audit_year,
+        "auditee_name": auditee_name or None,
         "include_awards": True,
         "only_flagged": False,
         "max_refs": 15,
@@ -121,8 +124,7 @@ def run_bulk(xlsx_path: str, base_url: str, output_dir: str):
             ein = row["ein"]
             year = row["audit_year"]
             logging.info(f"  [{batch_start + i + 1}/{total}] EIN={ein} year={year}")
-
-            result = call_endpoint(base_url, ein, year)
+            result = call_endpoint(base_url, ein, year, auditee_name=row.get("auditee_name", ""))
 
             status = "FAILED"
             url_out = result.get("url", "")
@@ -152,6 +154,7 @@ def run_bulk(xlsx_path: str, base_url: str, output_dir: str):
             results.append({
                 "ein": ein,
                 "audit_year": year,
+                "auditee_name": result.get("auditee_name") or result.get("recipient_name") or "",
                 "status": status,
                 "url": url_out,
                 "local_path": local_path,
@@ -174,9 +177,9 @@ def run_bulk(xlsx_path: str, base_url: str, output_dir: str):
     wb_out = openpyxl.Workbook()
     ws_out = wb_out.active
     ws_out.title = "Results"
-    ws_out.append(["ein", "audit_year", "status", "local_path", "url", "message"])
+    ws_out.append(["ein", "audit_year", "auditee_name", "status", "local_path", "url", "message"])
     for r in results:
-        ws_out.append([r["ein"], r["audit_year"], r["status"], r["local_path"], r["url"], r["message"]])
+        ws_out.append([r["ein"], r["audit_year"], r["auditee_name"], r["status"], r["local_path"], r["url"], r["message"]])
     wb_out.save(out_results)
     logging.info(f"Results log saved to: {out_results}")
 
