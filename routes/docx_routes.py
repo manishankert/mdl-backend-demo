@@ -168,8 +168,7 @@ def build_docx_by_report(req: BuildByReport):
         "report_id": f"eq.{req.report_id}",
         "select": ("reference_number,award_reference,type_requirement,"
                        "is_material_weakness,is_significant_deficiency,is_questioned_costs,"
-                       "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding,"
-                       "prior_references"),
+                       "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding"),
         "order": "reference_number.asc",
         "limit": str(findings_row_limit)
     }
@@ -480,11 +479,11 @@ def build_mdl_docx_auto(req: BuildAuto):
             aln_by_award, aln_by_finding = aln_overrides_from_summary(report_id)
         except Exception:
             aln_by_award, aln_by_finding = {}, {}
-        logging.info(f"ALN overrides loaded: {len(aln_by_award)} awards, {len(aln_by_finding)} findings")
-        logging.info("aln_by_award")
-        logging.info(aln_by_award)
-        logging.info("aln_by_finding")
-        logging.info(aln_by_finding)
+        #logging.info(f"ALN overrides loaded: {len(aln_by_award)} awards, {len(aln_by_finding)} findings")
+        #logging.info("aln_by_award")
+        #logging.info(aln_by_award)
+        #logging.info("aln_by_finding")
+        #logging.info(aln_by_finding)
 
         # 2) Fetch findings / finding text / CAPs (ALWAYS initialize lists)
         # NOTE: The FAC API returns one row per finding-per-award combination,
@@ -497,7 +496,8 @@ def build_mdl_docx_auto(req: BuildAuto):
             "report_id": f"eq.{report_id}",
             "select": ("reference_number,award_reference,type_requirement,"
                        "is_material_weakness,is_significant_deficiency,is_questioned_costs,"
-                       "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding"),
+                       "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding,"
+                       "prior_finding_ref_numbers"),
             "order": "reference_number.asc",
             "limit": str(findings_row_limit),
         }
@@ -635,7 +635,7 @@ def build_mdl_docx_auto(req: BuildAuto):
         input_year_auditee = gen[0].get("auditee_name") or "(empty)"
         input_year_poc_name = gen[0].get("auditee_contact_name") or "(empty)"
         input_year_poc_title = gen[0].get("auditee_contact_title") or "(empty)"
-        logging.info(f"=== AUDITEE NAME & POC SOURCE VERIFICATION ===")
+        '''logging.info(f"=== AUDITEE NAME & POC SOURCE VERIFICATION ===")
         logging.info(f"  Input year ({req.audit_year}) auditee_name: {input_year_auditee}")
         logging.info(f"  Latest year ({latest_year}) auditee_name: {auditee_name_from_latest}")
         logging.info(f"  USING auditee_name (from latest year): {raw_auditee}")
@@ -643,7 +643,7 @@ def build_mdl_docx_auto(req: BuildAuto):
         logging.info(f"  Input year ({req.audit_year}) POC: {input_year_poc_name} ({input_year_poc_title})")
         logging.info(f"  Latest year ({latest_year}) POC: {poc_name_from_latest} ({poc_title_from_latest})")
         logging.info(f"  USING POC (from latest year): {raw_poc_name} ({raw_poc_title})")
-        logging.info(f"===============================================")
+        logging.info(f"===============================================")'''
 
         # NEW CODE - Use standard case everywhere, no "The" article:
         recipient_formatted = format_name_standard_case(raw_auditee)
@@ -677,9 +677,9 @@ def build_mdl_docx_auto(req: BuildAuto):
                 mdl_model[k] = v
 
         # ADD THIS DEBUG LOGGING:
-        logging.info(f"After header overrides, mdl_model auditor_name: {mdl_model.get('auditor_name')}")
-        logging.info(f"After header overrides, mdl_model auditee_name: {mdl_model.get('auditee_name')}")
-        logging.info(f"After header overrides, mdl_model recipient_name: {mdl_model.get('recipient_name')}")
+        #logging.info(f"After header overrides, mdl_model auditor_name: {mdl_model.get('auditor_name')}")
+        #logging.info(f"After header overrides, mdl_model auditee_name: {mdl_model.get('auditee_name')}")
+        #logging.info(f"After header overrides, mdl_model recipient_name: {mdl_model.get('recipient_name')}")
 
         # ------------- sensible defaults for things the caller omitted -------------
         # Treasury listings: if not provided, use the SLFRF + common Treasury programs for demo

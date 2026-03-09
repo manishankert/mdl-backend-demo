@@ -306,7 +306,8 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 
                     # Add hyphen with spaces
                     if compliance_type and summary:
-                        cell.paragraphs[0].add_run(" - ")
+                        #cell.paragraphs[0].add_run(" - ")
+                        cell.paragraphs[0].add_run(" \u2013")
                         cell.paragraphs[0].add_run("\n")
 
                     # Add summary (not bold)

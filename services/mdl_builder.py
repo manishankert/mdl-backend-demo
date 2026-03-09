@@ -528,7 +528,7 @@ def build_mdl_model_from_fac(
 
         group["findings"].append({
             "finding_id": f.get("reference_number") or "",
-            "repeat_prior_reference": prior_ref_by_ref.get(k, ""),
+            "repeat_prior_reference": (f.get("prior_finding_ref_numbers") or "").strip().replace("N/A", ""),
             "is_repeat_finding": f.get("is_repeat_finding") or False,
             "compliance_type": ctype_label,  # Full label: "Procurement and suspension and debarment"
             "summary": matched_label,  # Matched standardized summary
