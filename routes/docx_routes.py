@@ -166,9 +166,9 @@ def build_docx_by_report(req: BuildByReport):
     findings_row_limit = max(req.max_refs * 20, 500)
     findings_params = {
         "report_id": f"eq.{req.report_id}",
-        "select": "reference_number,award_reference,type_requirement,"
-                  "is_material_weakness,is_significant_deficiency,is_questioned_costs,"
-                  "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding",
+        "select": ("reference_number,award_reference,type_requirement,"
+                       "is_material_weakness,is_significant_deficiency,is_questioned_costs,"
+                       "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding"),
         "order": "reference_number.asc",
         "limit": str(findings_row_limit)
     }
@@ -380,6 +380,12 @@ def build_mdl_docx_auto(req: BuildAuto):
             "limit": 10  # Get multiple records to find one with valid auditee_name
         })
 
+        logging.info(f"=== ALL AUDITS FOR EIN {req.ein} ===")
+        for a in all_audits:
+            logging.info(f"  year={a.get('audit_year')} | name={a.get('auditee_name')} | city={a.get('auditee_city')} | auditor={a.get('auditor_firm_name')} | report_id={a.get('report_id')}")
+        logging.info(f"=== END ALL AUDITS ===")
+
+
         if not all_audits:
             return {"ok": False, "message": f"No FAC records found for EIN {req.ein}."}
 
@@ -388,14 +394,29 @@ def build_mdl_docx_auto(req: BuildAuto):
         logging.info(f"Available audit years for EIN {req.ein}: {', '.join(available_years)}")
 
         # Find the latest record that has a non-empty auditee_name
+        # AND matches the requested auditee_name if one was provided
         gen_latest = None
         auditee_name_from_latest = ""
         for audit_record in all_audits:
             candidate_name = (audit_record.get("auditee_name") or "").strip()
-            if candidate_name:
+            if not candidate_name:
+                continue
+            # If caller specified auditee_name, prefer a record that matches it
+            if req.auditee_name:
+                if req.auditee_name.lower() in candidate_name.lower() or candidate_name.lower() in req.auditee_name.lower():
+                    gen_latest = audit_record
+                    auditee_name_from_latest = candidate_name
+                    break
+            else:
                 gen_latest = audit_record
                 auditee_name_from_latest = candidate_name
                 break
+
+        # Fallback: just use input year record if no name match found
+        if not gen_latest:
+            gen_latest = all_audits[0]
+            logging.warning(f"No matching auditee_name found, falling back to first record")
+        
 
         # If no record has auditee_name, use the first record anyway
         if not gen_latest:
@@ -406,26 +427,49 @@ def build_mdl_docx_auto(req: BuildAuto):
         logging.info(f"Latest audit year WITH auditee_name for EIN {req.ein}: {latest_year} (input year: {req.audit_year})")
 
         # Get auditee_name from latest year (primary source) or fall back to request
-        effective_auditee_name = auditee_name_from_latest or req.auditee_name or ""
+        #effective_auditee_name = auditee_name_from_latest or req.auditee_name or ""
+        effective_auditee_name = req.auditee_name or auditee_name_from_latest or ""
 
         if not effective_auditee_name:
             return {"ok": False, "message": f"Could not determine auditee name for EIN {req.ein}."}
 
-        # Get POC (Point of Contact) from latest year as well
-        poc_name_from_latest = (gen_latest.get("auditee_contact_name") or "").strip()
-        poc_title_from_latest = (gen_latest.get("auditee_contact_title") or "").strip()
+        # If gen_latest doesn't match the requested entity, fall back to input year for POC
+        poc_source = gen_latest if gen_latest else (gen[0] if gen else {})
+        poc_name_from_latest = (poc_source.get("auditee_contact_name") or "").strip()
+        poc_title_from_latest = (poc_source.get("auditee_contact_title") or "").strip()
 
         logging.info(f"Using auditee_name from latest FAC year ({latest_year}): {effective_auditee_name}")
         logging.info(f"Using POC from latest FAC year ({latest_year}): {poc_name_from_latest} ({poc_title_from_latest})")
 
         # 1b) Find report_id for the INPUT year (for findings data AND all other info except auditee_name)
-        gen = fac_get("general", {
+        gen_params = {
             "audit_year": f"eq.{req.audit_year}",
             "auditee_ein": f"eq.{req.ein}",
             "select": "report_id, fac_accepted_date, auditee_address_line_1, auditee_city, auditee_state, auditee_zip, auditor_firm_name, fy_end_date, auditee_contact_name,auditee_contact_title, auditee_name",
             "order": "fac_accepted_date.desc",
-            "limit": 1
-        })
+            "limit": 10  # get multiple in case of EIN collision
+        }
+        gen_all = fac_get("general", gen_params)
+        if not gen_all:
+            return {"ok": False, "message": f"No FAC report found for EIN {req.ein} in {req.audit_year}."}
+
+        # If auditee_name provided, find the record that matches
+        gen = None
+        if req.auditee_name:
+            for record in gen_all:
+                candidate = (record.get("auditee_name") or "").strip().lower()
+                if req.auditee_name.lower() in candidate or candidate in req.auditee_name.lower():
+                    gen = [record]
+                    logging.info(f"Matched input year record by auditee_name: {record.get('auditee_name')}")
+                    break
+        if not gen:
+            gen = [gen_all[0]]
+            logging.info(f"Using first input year record: {gen_all[0].get('auditee_name')}")
+
+        logging.info(f"=== INPUT YEAR RECORD ({req.audit_year}) ===")
+        logging.info(f"  name={gen[0].get('auditee_name')} | city={gen[0].get('auditee_city')} | auditor={gen[0].get('auditor_firm_name')} | report_id={gen[0].get('report_id')}")
+        logging.info(f"=== END INPUT YEAR RECORD ===")
+        
         if not gen:
             return {"ok": False, "message": f"No FAC report found for EIN {req.ein} in {req.audit_year}."}
 
@@ -435,11 +479,11 @@ def build_mdl_docx_auto(req: BuildAuto):
             aln_by_award, aln_by_finding = aln_overrides_from_summary(report_id)
         except Exception:
             aln_by_award, aln_by_finding = {}, {}
-        logging.info(f"ALN overrides loaded: {len(aln_by_award)} awards, {len(aln_by_finding)} findings")
-        logging.info("aln_by_award")
-        logging.info(aln_by_award)
-        logging.info("aln_by_finding")
-        logging.info(aln_by_finding)
+        #logging.info(f"ALN overrides loaded: {len(aln_by_award)} awards, {len(aln_by_finding)} findings")
+        #logging.info("aln_by_award")
+        #logging.info(aln_by_award)
+        #logging.info("aln_by_finding")
+        #logging.info(aln_by_finding)
 
         # 2) Fetch findings / finding text / CAPs (ALWAYS initialize lists)
         # NOTE: The FAC API returns one row per finding-per-award combination,
@@ -452,7 +496,8 @@ def build_mdl_docx_auto(req: BuildAuto):
             "report_id": f"eq.{report_id}",
             "select": ("reference_number,award_reference,type_requirement,"
                        "is_material_weakness,is_significant_deficiency,is_questioned_costs,"
-                       "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding"),
+                       "is_modified_opinion,is_other_findings,is_other_matters,is_repeat_finding,"
+                       "prior_finding_ref_numbers"),
             "order": "reference_number.asc",
             "limit": str(findings_row_limit),
         }
@@ -590,7 +635,7 @@ def build_mdl_docx_auto(req: BuildAuto):
         input_year_auditee = gen[0].get("auditee_name") or "(empty)"
         input_year_poc_name = gen[0].get("auditee_contact_name") or "(empty)"
         input_year_poc_title = gen[0].get("auditee_contact_title") or "(empty)"
-        logging.info(f"=== AUDITEE NAME & POC SOURCE VERIFICATION ===")
+        '''logging.info(f"=== AUDITEE NAME & POC SOURCE VERIFICATION ===")
         logging.info(f"  Input year ({req.audit_year}) auditee_name: {input_year_auditee}")
         logging.info(f"  Latest year ({latest_year}) auditee_name: {auditee_name_from_latest}")
         logging.info(f"  USING auditee_name (from latest year): {raw_auditee}")
@@ -598,7 +643,7 @@ def build_mdl_docx_auto(req: BuildAuto):
         logging.info(f"  Input year ({req.audit_year}) POC: {input_year_poc_name} ({input_year_poc_title})")
         logging.info(f"  Latest year ({latest_year}) POC: {poc_name_from_latest} ({poc_title_from_latest})")
         logging.info(f"  USING POC (from latest year): {raw_poc_name} ({raw_poc_title})")
-        logging.info(f"===============================================")
+        logging.info(f"===============================================")'''
 
         # NEW CODE - Use standard case everywhere, no "The" article:
         recipient_formatted = format_name_standard_case(raw_auditee)
@@ -609,7 +654,11 @@ def build_mdl_docx_auto(req: BuildAuto):
             "period_end_text": req.fy_end_text or fac_defaults.get("period_end_text") or mdl_model.get("period_end_text"),
 
             # address (title case street + city, uppercase state, keep zip as-is)
-            "street_address": title_case(req.street_address or fac_defaults.get("street_address")),
+            "street_address": re.sub(
+                r'(\d+)(St|Nd|Rd|Th)\b',
+                lambda m: m.group(1) + m.group(2).lower(),
+                title_case(req.street_address or fac_defaults.get("street_address")) or ""
+            ),
             "city": title_case(req.city or fac_defaults.get("city")),
             "state": (req.state or fac_defaults.get("state") or "").upper(),
             "zip_code": req.zip_code or fac_defaults.get("zip_code") or "",
@@ -628,9 +677,9 @@ def build_mdl_docx_auto(req: BuildAuto):
                 mdl_model[k] = v
 
         # ADD THIS DEBUG LOGGING:
-        logging.info(f"After header overrides, mdl_model auditor_name: {mdl_model.get('auditor_name')}")
-        logging.info(f"After header overrides, mdl_model auditee_name: {mdl_model.get('auditee_name')}")
-        logging.info(f"After header overrides, mdl_model recipient_name: {mdl_model.get('recipient_name')}")
+        #logging.info(f"After header overrides, mdl_model auditor_name: {mdl_model.get('auditor_name')}")
+        #logging.info(f"After header overrides, mdl_model auditee_name: {mdl_model.get('auditee_name')}")
+        #logging.info(f"After header overrides, mdl_model recipient_name: {mdl_model.get('recipient_name')}")
 
         # ------------- sensible defaults for things the caller omitted -------------
         # Treasury listings: if not provided, use the SLFRF + common Treasury programs for demo

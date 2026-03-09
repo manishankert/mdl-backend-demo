@@ -44,8 +44,16 @@ logging.basicConfig(level=logging.INFO)
 # Words that must remain fully uppercase
 UPPERCASE_TOKENS = {
     "LLC", "LLP", "PLLC", "PC", "PA", "INC", "CO", "CORP",
-    "CPA", "CPAs", "CFA", "EA",
+    "CPA", "CPA'S", "CPA\u2019S", "CPAS", "CPAs", "CFA", "EA",
     "USA", "U.S.", "US",
+    "CFO", "CEO", "COO", "CIO", "CAO", "VP", "HR", "IT",
+    "PKF", "EFPR",
+}
+
+LOWERCASE_WORDS = {
+    "a", "an", "the", "and", "or", "but", "nor", "for", "so", "yet",
+    "at", "by", "in", "of", "on", "to", "up", "as", "is", "it",
+    "with", "from", "into", "onto", "over", "than", "that",
 }
 
 def ensure_leading_the(name: str) -> str:
@@ -92,14 +100,42 @@ def smart_title_case(text: str) -> str:
 
     words = re.split(r"(\s+)", text.strip())  # preserve spacing
     out = []
+    first_word = True
 
     for w in words:
-        if w.strip().upper() in UPPERCASE_TOKENS:
-            out.append(w.strip().upper())
+        if not w.strip():
+            out.append(w)
+            continue
+        elif w.strip().rstrip(".,;:!?").upper() in UPPERCASE_TOKENS:
+            clean = w.strip().rstrip(".,;:!?")
+            suffix = w.strip()[len(clean):]
+            result = clean.upper().replace("'S", "'s").replace("\u2019S", "\u2019s")
+            out.append(result + suffix)
+        elif w.strip().lower() in LOWERCASE_WORDS and not first_word:
+            out.append(w.strip().lower())
+        elif "/" in w:
+            parts = w.split("/")
+            cased = []
+            for part in parts:
+                if not part:
+                    cased.append(part)
+                elif part.strip().upper() in UPPERCASE_TOKENS:
+                    result = part.strip().upper()
+                    result = result.replace("'S", "'s").replace("\u2019S", "\u2019s")
+                    cased.append(result)
+                elif part.strip().lower() in LOWERCASE_WORDS:
+                    cased.append(part.strip().lower())
+                elif part.isupper():
+                    cased.append(part.capitalize())
+                else:
+                    cased.append(part[0].upper() + part[1:] if part else part)
+            out.append("/".join(cased))
         elif w.isupper():
             out.append(w.capitalize())
         else:
             out.append(w)
+        #logging.info(f"smart_title_case token: {repr(w)} -> upper={repr(w.strip().upper())} in_tokens={w.strip().upper() in UPPERCASE_TOKENS}")
+        first_word = False
 
     return "".join(out)
 
@@ -252,6 +288,11 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
                 # Column-specific formatting
                 if c == 0:  # Finding ID
                     cell.paragraphs[0].add_run(f.get("finding_id", ""))
+                    repeat_ref = (f.get("repeat_prior_reference") or "").strip()
+                    if repeat_ref:
+                        cell.paragraphs[0].add_run(f"\n\nRepeat of {repeat_ref}")
+                    elif f.get("is_repeat_finding"):
+                        cell.paragraphs[0].add_run("\n\nRepeat Finding")
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
                 elif c == 1:  # Compliance Type - Audit Finding (SPECIAL FORMATTING)
@@ -265,7 +306,8 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 
                     # Add hyphen with spaces
                     if compliance_type and summary:
-                        cell.paragraphs[0].add_run(" - ")
+                        #cell.paragraphs[0].add_run(" - ")
+                        cell.paragraphs[0].add_run(" \u2013")
                         cell.paragraphs[0].add_run("\n")
 
                     # Add summary (not bold)
@@ -386,8 +428,17 @@ def insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Parag
         prog["findings"] = dedupe_findings(prog.get("findings") or [])'''
 
     # Order programs by ALN
+    PROGRAM_PRIORITY = {
+        "21.027": 0,
+        "21.026": 1,
+        "21.023": 2,
+        "21.029": 3,
+        "21.031": 4,
+        "21.032": 5,
+    }
     def _al_key(p):
-        return (p.get("assistance_listing") or "99.999")
+        aln = (p.get("assistance_listing") or "99.999")
+        return (PROGRAM_PRIORITY.get(aln, 99), aln)
     programs_sorted = sorted(programs or [], key=_al_key)
 
     last = anchor_para
@@ -478,7 +529,7 @@ def remove_duplicate_program_headers(doc: Document, first_label: Paragraph):
 
         # If this paragraph also contains "Assistance Listing Number/Program Name"
         if "Assistance Listing Number/Program Name" in text:
-            logging.info(f"Removing duplicate header: {text[:80]}")
+            #logging.info(f"Removing duplicate header: {text[:80]}")
             remove_paragraph(p)
             break  # Only remove one duplicate
 
@@ -537,7 +588,7 @@ def cleanup_post_table_narrative(doc, model):
 
         # CRITICAL FIX: Skip the program header paragraph
         if "Assistance Listing Number/Program Name:" in t:
-            logging.info(f"Skipping program header from cleanup: {t[:80]}")
+            #logging.info(f"Skipping program header from cleanup: {t[:80]}")
             continue
 
         should_remove = False
@@ -570,11 +621,11 @@ def cleanup_post_table_narrative(doc, model):
             reason = "contains SLFRP award number"
 
         if should_remove:
-            logging.info(f"Removing ({reason}): {t[:100]}")
+            #logging.info(f"Removing ({reason}): {t[:100]}")
             remove_paragraph(p)
             removed_count += 1
 
-    logging.info(f"Cleanup removed {removed_count} duplicate narrative paragraphs")
+    #logging.info(f"Cleanup removed {removed_count} duplicate narrative paragraphs")
 
 
 def unset_all_caps_everywhere(doc):
@@ -644,7 +695,7 @@ def fix_questioned_costs_grammar(doc):
             if new_text != text:
                 clear_runs(p)
                 p.add_run(new_text)
-                logging.info("Fixed questioned costs grammar")
+                #logging.info("Fixed questioned costs grammar")
                 break
 
 
@@ -659,7 +710,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     
 
     # Narrow view: just the findings fields you care about
-    for pi, prog in enumerate(model.get("programs") or []):
+    '''for pi, prog in enumerate(model.get("programs") or []):
         logging.info(f"Program[{pi}]: aln={prog.get('assistance_listing')} name={prog.get('program_name')}")
         for fi, f in enumerate(prog.get("findings") or []):
             logging.info(
@@ -667,7 +718,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
                 f"compliance_type={f.get('compliance_type')!r} | "
                 f"summary={f.get('summary')!r} | "
                 f"keys={list(f.keys())}"
-            )
+            )'''
     # ── END DEBUG ────────────────────────────────────────────────────────────
 
     doc = Document(template_path)
@@ -687,9 +738,9 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     poc = smart_title_case(model.get("poc_name", "") or "")
     poc_t = smart_title_case(model.get("poc_title", "") or "")
     auditor = smart_title_case(model.get("auditor_name", "") or "")
-    logging.info(f"Auditor: {auditor}")
-    logging.info(f"Auditee: {auditee}")
-    logging.info(f"POC: {poc} ({poc_t})")
+    #logging.info(f"Auditor: {auditor}")
+    #logging.info(f"Auditee: {auditee}")
+    #logging.info(f"POC: {poc} ({poc_t})")
     fy_end = (model.get("period_end_text")
                or str(model.get("audit_year", ""))) or ""
     # Treasury contact email
@@ -755,6 +806,9 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
 
     # 2) Insert program tables at the anchor
     anchor = find_anchor_paragraph(doc, "[[PROGRAM_TABLES]]")
+    logging.info(f"Anchor found: {anchor is not None}")
+    if anchor:
+        logging.info(f"Anchor text: {repr(para_text(anchor))}")
     if not anchor:
         raise HTTPException(400, "Template does not contain the [[PROGRAM_TABLES]] anchor paragraph.")
     programs = model.get("programs", []) or []
@@ -763,7 +817,15 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         label_p = find_para_by_contains(doc, "Assistance Listing Number/Program Name")
         progs = model.get("programs") or []
         if label_p is not None and progs:
-            progs_sorted = sorted(progs, key=lambda p: p.get("assistance_listing") or "99.999")
+            PROGRAM_PRIORITY = {
+                "21.027": 0,
+                "21.026": 1,
+                "21.023": 2,
+                "21.029": 3,
+                "21.031": 4,
+                "21.032": 5,
+            }
+            progs_sorted = sorted(progs, key=lambda p: (PROGRAM_PRIORITY.get(p.get("assistance_listing") or "", 99), p.get("assistance_listing") or "99.999"))
             first = progs_sorted[0]
             aln = (first.get("assistance_listing") or "").strip()
             pname = (first.get("program_name") or "").strip()
@@ -782,10 +844,10 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             tight_paragraph(label_p)
 
             pf = label_p.paragraph_format
-            logging.info(f"Label para - space_before: {pf.space_before}, space_after: {pf.space_after}")
+            #logging.info(f"Label para - space_before: {pf.space_before}, space_after: {pf.space_after}")
 
             # After creating table:
-            logging.info(f"Table spacing check")
+            #logging.info(f"Table spacing check")
             # Remove any duplicate headers that follow
             # Only remove duplicate headers if there's exactly one program
             # For multiple programs, each table needs its own header
@@ -843,7 +905,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     # ========== FORCE FIX NARRATIVE PARAGRAPH (FINAL, BOLD-SAFE) ==========
     #correct_auditee = model.get("auditee_name") or model.get("recipient_name") or ""
     correct_auditee = ensure_leading_the(model.get("auditee_name") or model.get("recipient_name") or "")
-    correct_auditor = model.get("auditor_name") or ""
+    correct_auditor = smart_title_case(model.get("auditor_name") or "")
 
     # Strip leading "The "
     '''if correct_auditee.lower().startswith("the "):
@@ -878,7 +940,6 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
         p.add_run(correct_auditor)            # auditor
         p.add_run(m.group(5))                 # trailing text
 
-        logging.info(f"Narrative fixed + bolded auditee: {correct_auditee}")
         break
 
     doc.save(bio)
