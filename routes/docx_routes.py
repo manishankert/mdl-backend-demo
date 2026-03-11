@@ -655,9 +655,16 @@ def build_mdl_docx_auto(req: BuildAuto):
 
             # address (title case street + city, uppercase state, keep zip as-is)
             "street_address": re.sub(
-                r'(\d+)(St|Nd|Rd|Th)\b',
-                lambda m: m.group(1) + m.group(2).lower(),
-                title_case(req.street_address or fac_defaults.get("street_address")) or ""
+                r'\b(And|Or|Of|The|At|By|In|On|To)\b',
+                lambda m: m.group(1).lower(),
+                re.sub(
+                    r'\b[Pp][Oo]\b', 'PO',
+                    re.sub(
+                        r'(\d+)(St|Nd|Rd|Th)\b',
+                        lambda m: m.group(1) + m.group(2).lower(),
+                        title_case(req.street_address or fac_defaults.get("street_address")) or ""
+                    )
+                )
             ),
             "city": title_case(req.city or fac_defaults.get("city")),
             "state": (req.state or fac_defaults.get("state") or "").upper(),

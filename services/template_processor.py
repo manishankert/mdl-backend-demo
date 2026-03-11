@@ -43,11 +43,11 @@ logging.basicConfig(level=logging.INFO)
 
 # Words that must remain fully uppercase
 UPPERCASE_TOKENS = {
-    "LLC", "LLP", "PLLC", "PC", "PA", "INC", "CO", "CORP",
+    "LLC", "L.L.C.", "LLP", "PLLC", "PC", "PA", "INC", "CO", "CORP",
     "CPA", "CPA'S", "CPA\u2019S", "CPAS", "CPAs", "CFA", "EA",
     "USA", "U.S.", "US",
     "CFO", "CEO", "COO", "CIO", "CAO", "VP", "HR", "IT",
-    "PKF", "EFPR",
+    "PKF", "EFPR", "PO", "P.C."
     # US state abbreviations
     "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
     "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
@@ -270,7 +270,8 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
 
     headers = [
         "Audit\nFinding #",
-        "Compliance Type -\nAudit Finding Summary",
+        #"Compliance Type -\nAudit Finding Summary",
+        "Compliance Type",
         "Audit Finding\nDetermination",
         "Questioned Cost\nDetermination",
         "CAP\nDetermination",
@@ -312,7 +313,7 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
                         bold_run.bold = True
 
                     # Add hyphen with spaces
-                    if compliance_type and summary:
+                    '''if compliance_type and summary:
                         #cell.paragraphs[0].add_run(" - ")
                         cell.paragraphs[0].add_run(" \u2013")
                         cell.paragraphs[0].add_run("\n")
@@ -320,7 +321,8 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
                     # Add summary (not bold)
                     if summary:
                         cell.paragraphs[0].add_run("\n")
-                        cell.paragraphs[0].add_run(summary)
+                        cell.paragraphs[0].add_run(summary)'''
+                    pass
 
                     # Left align this column
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -715,12 +717,12 @@ def fix_narrative_bold(data: bytes, model: Dict[str, Any]) -> bytes:
     from io import BytesIO
     doc = Document(BytesIO(data))
     
-    correct_auditee = fix_state_abbrevs(ensure_leading_the(
+    correct_auditee = fix_state_abbrevs(
         model.get("auditee_name") or model.get("recipient_name") or ""
-    ))
-    correct_auditor = re.sub(r'\s+([,;])', r'\1', smart_title_case(
+    ).strip()
+    correct_auditor = re.sub(r'\s+([,;])', r'\1', 
         model.get("auditor_name") or ""
-    ))
+    )
 
     for p in iter_all_paragraphs_in_container(doc):
         text = para_text(p)
@@ -984,7 +986,9 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
 
     # ========== FORCE FIX NARRATIVE PARAGRAPH (FINAL, BOLD-SAFE) ==========
     #correct_auditee = model.get("auditee_name") or model.get("recipient_name") or ""
-    correct_auditee = ensure_leading_the(model.get("auditee_name") or model.get("recipient_name") or "")
+    correct_auditee = fix_state_abbrevs(
+        model.get("auditee_name") or model.get("recipient_name") or ""
+    )
     correct_auditor = smart_title_case(model.get("auditor_name") or "")
 
     # Strip leading "The "
