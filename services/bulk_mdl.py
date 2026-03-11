@@ -80,7 +80,7 @@ def call_endpoint(base_url: str, ein: str, audit_year: int, auditee_name: str = 
         "include_awards": True,
         "only_flagged": False,
         "max_refs": 15,
-        "treasury_listings": ["21.027", "21.023", "21.026"],
+        "treasury_listings": ["21.032", "21.031", "21.029", "21.027", "21.026", "21.023"],
     }
     try:
         r = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
