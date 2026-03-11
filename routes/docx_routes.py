@@ -696,9 +696,11 @@ def build_mdl_docx_auto(req: BuildAuto):
         # 4) Build DOCX (unchanged except variable names)
         try:
             data = build_docx_from_template(mdl_model, template_path=template_path)
-
-            # Post-process the generated docx bytes AFTER everything else
             data = postprocess_docx(data, mdl_model)
+
+            # Fix narrative paragraph bold AFTER postprocess (which wipes it)
+            from services.template_processor import fix_narrative_bold
+            data = fix_narrative_bold(data, mdl_model)
 
         except HTTPException as e:
             return {"ok": False, "message": f"Template error: {e.detail}"}

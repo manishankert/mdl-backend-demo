@@ -48,6 +48,13 @@ UPPERCASE_TOKENS = {
     "USA", "U.S.", "US",
     "CFO", "CEO", "COO", "CIO", "CAO", "VP", "HR", "IT",
     "PKF", "EFPR",
+    # US state abbreviations
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+    "DC", "PR", "GU", "VI", "AS", "MP",
 }
 
 LOWERCASE_WORDS = {
@@ -697,6 +704,54 @@ def fix_questioned_costs_grammar(doc):
                 p.add_run(new_text)
                 #logging.info("Fixed questioned costs grammar")
                 break
+
+def fix_state_abbrevs(s: str) -> str:
+    """Re-uppercase any 2-letter state abbreviation that got title-cased."""
+    if not s:
+        return s
+    return re.sub(r'\b([A-Z][a-z])\b', lambda m: m.group(1).upper(), s)
+
+def fix_narrative_bold(data: bytes, model: Dict[str, Any]) -> bytes:
+    from io import BytesIO
+    doc = Document(BytesIO(data))
+    
+    correct_auditee = fix_state_abbrevs(ensure_leading_the(
+        model.get("auditee_name") or model.get("recipient_name") or ""
+    ))
+    correct_auditor = re.sub(r'\s+([,;])', r'\1', smart_title_case(
+        model.get("auditor_name") or ""
+    ))
+
+    for p in iter_all_paragraphs_in_container(doc):
+        text = para_text(p)
+        if "Treasury has reviewed the single audit report for" not in text:
+            continue
+
+        pattern = (
+            r'(Treasury has reviewed the single audit report for )(?:the )?'
+            r'(.+?)'
+            r'(,? prepared by )(.+?)'
+            r'( for the fiscal year.*)'
+        )
+        m = re.search(pattern, text, re.DOTALL)
+        if not m:
+            break
+
+        clear_runs(p)
+        p.add_run(m.group(1)).font.size = Pt(12)
+        r = p.add_run(correct_auditee)
+        r.bold = True
+        r.font.size = Pt(12)
+        p.add_run(m.group(3)).font.size = Pt(12)
+        p.add_run(correct_auditor).font.size = Pt(12)
+        p.add_run(m.group(5)).font.size = Pt(12)
+        break
+
+    set_font_size_to_12(doc)  # re-apply after postprocess
+
+    bio = BytesIO()
+    doc.save(bio)
+    return bio.getvalue()
 
 
 def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> bytes:
