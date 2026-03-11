@@ -877,6 +877,18 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
     total_findings = sum(len(prog.get("findings") or []) for prog in (model.get("programs") or []))
     apply_mdl_grammar(doc, total_findings)
 
+    for p in iter_all_paragraphs_full(doc):
+        text = para_text(p)
+        if "identified issues violates" in text:
+            new_text = text.replace(
+                "identified issues violates",
+                "identified issues violate" if total_findings > 1 else "identified issue violates"
+            )
+            if new_text != text:
+                clear_runs(p)
+                p.add_run(new_text)
+                break
+
     # Final tidy: strip any *remaining* token patterns like ${...} or [...]
     def _strip_leftovers_in_container(container):
         for p in iter_all_paragraphs_in_container(container):
