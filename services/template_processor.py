@@ -744,7 +744,20 @@ def fix_narrative_bold(data: bytes, model: Dict[str, Any]) -> bytes:
         r.font.size = Pt(12)
         p.add_run(m.group(3)).font.size = Pt(12)
         p.add_run(correct_auditor).font.size = Pt(12)
-        p.add_run(m.group(5)).font.size = Pt(12)
+
+        # Split group 5 to bold the date
+        tail = m.group(5)  # " for the fiscal year ending on June 30, 2023. No questioned..."
+        date_match = re.search(r'(.*?ending on )([A-Za-z]+ \d+, \d{4})(.*)', tail, re.DOTALL)
+        if date_match:
+            run_pre = p.add_run(date_match.group(1))
+            run_pre.font.size = Pt(12)
+            run_date = p.add_run(date_match.group(2))
+            run_date.bold = True
+            run_date.font.size = Pt(12)
+            run_post = p.add_run(date_match.group(3))
+            run_post.font.size = Pt(12)
+        else:
+            p.add_run(tail).font.size = Pt(12)
         break
 
     set_font_size_to_12(doc)  # re-apply after postprocess
