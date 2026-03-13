@@ -440,65 +440,69 @@ def insert_program_tables_at_anchor_no_headers(doc: Document, anchor_para: Parag
 
     # Order programs by ALN
     PROGRAM_PRIORITY = {
-        "21.027": 0,
-        "21.026": 1,
-        "21.023": 2,
-        "21.029": 3,
-        "21.031": 4,
-        "21.032": 5,
+        "21.027": 0, "21.026": 1, "21.023": 2,
+        "21.029": 3, "21.031": 4, "21.032": 5,
     }
     def _al_key(p):
         aln = (p.get("assistance_listing") or "99.999")
         return (PROGRAM_PRIORITY.get(aln, 99), aln)
     programs_sorted = sorted(programs or [], key=_al_key)
 
+    # GROUP programs that share identical finding IDs into one table
+    def _findings_key(p):
+        ids = sorted(f.get("finding_id", "") for f in (p.get("findings") or []))
+        return tuple(ids)
+
+    groups = []  # each group = list of programs to show under one table
+    seen_keys = {}
+    for p in programs_sorted:
+        fkey = _findings_key(p)
+        if fkey and fkey in seen_keys:
+            seen_keys[fkey].append(p)  # merge into existing group
+        else:
+            group = [p]
+            groups.append(group)
+            seen_keys[fkey] = group
+
     last = anchor_para
-    
 
-    # For SINGLE program: just insert table (header already exists in template)
-    # For MULTIPLE programs: insert header + table for 2nd, 3rd, etc.
-    for idx, p in enumerate(programs_sorted):
-        al = p.get("assistance_listing", "Unknown")
-        name = p.get("program_name", "Unknown Program")
+    for idx, group in enumerate(groups):
+        # Build header listing all ALNs in the group
+        heading_para = doc.add_paragraph() if idx > 0 else None
 
-        # Only add header for 2nd+ programs (first uses the template header)
-        if idx > 0:
+        if idx == 0:
+            # Update the template's existing header paragraph (label_p handled outside)
+            pass
+        else:
             heading_para = doc.add_paragraph()
             clear_runs(heading_para)
-
             header_run = heading_para.add_run("Assistance Listing Number/Program Name:")
             header_run.bold = True
-
-            heading_para.add_run("\n")
-            heading_para.add_run(f"{al} / {name}")
-
+            for p in group:
+                al = p.get("assistance_listing", "Unknown")
+                name = p.get("program_name", "Unknown Program")
+                heading_para.add_run(f"\n{al} / {name}")
             tight_paragraph(heading_para)
             heading_para.paragraph_format.space_before = Pt(12)
             heading_para.paragraph_format.space_after = Pt(8)
-
-            # Splice heading after 'last'
             heading_el = heading_para._p
             heading_el.getparent().remove(heading_el)
             insert_after(last, heading_el)
             last = heading_el
 
-  
-
-        # Insert table
-        tbl = build_program_table(doc, p)
+        # Use first program's findings for the table (they're all the same)
+        tbl = build_program_table(doc, group[0])
         tbl_el = tbl._tbl
         tbl_el.getparent().remove(tbl_el)
         insert_after(last, tbl_el)
         last = tbl_el
 
-        # Spacer between programs (if multiple)
-        if idx < len(programs_sorted) - 1:
+        if idx < len(groups) - 1:
             spacer = doc.add_paragraph()
             spacer_el = spacer._p
             spacer_el.getparent().remove(spacer_el)
             insert_after(last, spacer_el)
             last = spacer_el
-
 
 def find_para_by_contains(doc: Document, needle: str) -> Optional[Paragraph]:
     def _norm(s: str) -> str:
@@ -911,7 +915,14 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             # Add a line break (not new paragraph)
             label_p.add_run("\n")
             # Add the ALN and program name (not bold)
-            label_p.add_run(f"{aln} / {pname}")
+            #label_p.add_run(f"{aln} / {pname}")
+            first_ids = tuple(sorted(f.get("finding_id","") for f in (first.get("findings") or [])))
+            for p in progs_sorted:
+                ids = tuple(sorted(f.get("finding_id","") for f in (p.get("findings") or [])))
+                if ids == first_ids:
+                    al = (p.get("assistance_listing") or "").strip()
+                    pn = (p.get("program_name") or "").strip()
+                    label_p.add_run(f"\n{al} / {pn}")
             # KEY FIX: Set tight spacing - use tight_paragraph for consistent removal
             tight_paragraph(label_p)
 
