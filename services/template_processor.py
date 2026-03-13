@@ -913,7 +913,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
             header_run = label_p.add_run("Assistance Listing Number/Program Name:")
             header_run.bold = True
             # Add a line break (not new paragraph)
-            label_p.add_run("\n")
+            #label_p.add_run("\n")
             # Add the ALN and program name (not bold)
             #label_p.add_run(f"{aln} / {pname}")
             first_ids = tuple(sorted(f.get("finding_id","") for f in (first.get("findings") or [])))
