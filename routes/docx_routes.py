@@ -615,7 +615,7 @@ def build_mdl_docx_auto(req: BuildAuto):
             only_flagged=req.only_flagged,
             max_refs=req.max_refs,
             include_no_qc_line=True,
-            treasury_listings=req.treasury_listings or ["21.027", "21.023", "21.026"],
+            treasury_listings=req.treasury_listings or ["21.032", "21.031", "21.029", "21.027", "21.026", "21.023"],
             aln_reference_xlsx=aln_xlsx,
             aln_overrides_by_finding=aln_by_finding,
         )
@@ -691,7 +691,7 @@ def build_mdl_docx_auto(req: BuildAuto):
         # ------------- sensible defaults for things the caller omitted -------------
         # Treasury listings: if not provided, use the SLFRF + common Treasury programs for demo
         if not req.treasury_listings:
-            req.treasury_listings = ["21.027", "21.023", "21.026"]
+            req.treasury_listings = ["21.032", "21.031", "21.029", "21.027", "21.026", "21.023"]
 
         # Template defaults if not provided
         template_path = none_if_placeholder(req.template_path) or "templates/MDL_Template_Data_Mapping_Comments.docx"

@@ -195,7 +195,8 @@ def from_fac_general(gen_rows):
         from datetime import datetime
         if g.get("fy_end_date"):
             dt = datetime.fromisoformat(g["fy_end_date"])
-            per_end = dt.strftime("%B %-d, %Y") if hasattr(dt, "strftime") else None
+            #per_end = dt.strftime("%B %-d, %Y") if hasattr(dt, "strftime") else None
+            per_end = dt.strftime("%B {day}, %Y").replace("{day}", str(dt.day))
     except Exception:
         pass
 

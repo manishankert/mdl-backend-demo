@@ -43,7 +43,7 @@ logging.basicConfig(level=logging.INFO)
 
 # Words that must remain fully uppercase
 UPPERCASE_TOKENS = {
-    "LLC", "L.L.C.", "LLP", "PLLC", "PC", "PA", "INC", "CO", "CORP",
+    "LLC", "L.L.C.", "L.L.C", "L.L.P", "P.L.L.C", "P.C", "LLP", "PLLC", "PC", "PA", "P.A.", "P.A", "INC", "CO", "CORP",
     "CPA", "CPA'S", "CPA\u2019S", "CPAS", "CPAs", "CFA", "EA",
     "USA", "U.S.", "US",
     "CFO", "CEO", "COO", "CIO", "CAO", "VP", "HR", "IT",
@@ -328,7 +328,8 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
 
                 elif c == 2:  # Audit Finding Determination
-                    cell.paragraphs[0].add_run(f.get("audit_determination", "Sustained"))
+                    #cell.paragraphs[0].add_run(f.get("audit_determination", "Sustained"))
+                    cell.paragraphs[0].add_run("Sustained")
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
                 elif c == 3:  # Questioned Cost Determination
@@ -337,7 +338,8 @@ def build_program_table(doc: Document, program: Dict[str, Any]) -> Table:
                     #cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
                 elif c == 4:  # CAP Determination
-                    cell.paragraphs[0].add_run(f.get("cap_determination", "Not Applicable"))
+                    #cell.paragraphs[0].add_run(f.get("cap_determination", "Not Applicable"))
+                    cell.paragraphs[0].add_run("Accepted")
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
                 #elif c == 5:  # Repeat Finding
@@ -720,9 +722,9 @@ def fix_narrative_bold(data: bytes, model: Dict[str, Any]) -> bytes:
     correct_auditee = fix_state_abbrevs(
         model.get("auditee_name") or model.get("recipient_name") or ""
     ).strip()
-    correct_auditor = re.sub(r'\s+([,;])', r'\1', 
+    correct_auditor = re.sub(r'\s+([,;])', r'\1', smart_title_case(
         model.get("auditor_name") or ""
-    )
+    ))
 
     for p in iter_all_paragraphs_in_container(doc):
         text = para_text(p)
