@@ -658,11 +658,15 @@ def build_mdl_docx_auto(req: BuildAuto):
                 r'\b(And|Or|Of|The|At|By|In|On|To)\b',
                 lambda m: m.group(1).lower(),
                 re.sub(
-                    r'\b[Pp][Oo]\b', 'PO',
+                    r'\b(NW|NE|SW|SE|[Nn][Ww]|[Nn][Ee]|[Ss][Ww]|[Ss][Ee])\b',
+                    lambda m: m.group(1).upper(),
                     re.sub(
-                        r'(\d+)(St|Nd|Rd|Th)\b',
-                        lambda m: m.group(1) + m.group(2).lower(),
-                        title_case(req.street_address or fac_defaults.get("street_address")) or ""
+                        r'\b[Pp][Oo]\b', 'PO',
+                        re.sub(
+                            r'(\d+)(St|Nd|Rd|Th)\b',
+                            lambda m: m.group(1) + m.group(2).lower(),
+                            title_case(req.street_address or fac_defaults.get("street_address")) or ""
+                        )
                     )
                 )
             ),
@@ -675,7 +679,7 @@ def build_mdl_docx_auto(req: BuildAuto):
             "auditee_name": recipient_formatted,
             # POC (title case name + title) - from LATEST year
             "poc_name": title_case(raw_poc_name),
-            "poc_title": raw_poc_title,
+            "poc_title": title_case(raw_poc_title),
         }
 
         # apply non-empty values only

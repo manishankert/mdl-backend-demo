@@ -47,7 +47,7 @@ UPPERCASE_TOKENS = {
     "CPA", "CPA'S", "CPA\u2019S", "CPAS", "CPAs", "CFA", "EA",
     "USA", "U.S.", "US",
     "CFO", "CEO", "COO", "CIO", "CAO", "VP", "HR", "IT",
-    "PKF", "EFPR", "PO", "P.C."
+    "PKF", "EFPR", "PO", "P.C.",
     # US state abbreviations
     "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
     "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
