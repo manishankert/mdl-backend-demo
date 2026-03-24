@@ -867,6 +867,7 @@ def build_docx_from_template(model: Dict[str, Any], *, template_path: str) -> by
 
     # After you load/prepare model + mapping replacements, before table insertion/plurals:
     total_findings = dedupe_model_programs_and_findings(model)
+    model["programs"] = [p for p in (model.get("programs") or []) if p.get("findings")]
     programs = model.get("programs") or []
 
     # 1) Replace placeholders everywhere (body + headers/footers + nested tables)
