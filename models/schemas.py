@@ -50,6 +50,20 @@ class BuildByReportTemplated(BuildByReport):
     template_path: Optional[str] = None
     treasury_listings: Optional[List[str]] = None
 
+class BulkItem(BaseModel):
+    ein: str
+    audit_year: int
+    auditee_name: str = ""
+
+class BuildBulk(BaseModel):
+    items: List[BulkItem]
+    include_sfsac: bool = False
+    treasury_listings: List[str] = ["21.032", "21.031", "21.029", "21.027", "21.026", "21.023"]
+    max_refs: int = 15
+    dest_path: str = ""
+    template_path: str = ""
+    aln_reference_xlsx: str = ""
+
 
 class BuildAuto(BaseModel):
     # required
@@ -86,3 +100,6 @@ class BuildAuto(BaseModel):
     # optional flags
     include_no_qc_line: bool = True
     include_no_cap_line: bool = False
+    
+    include_sfsac: bool = False
+    download_sfsac: bool = False

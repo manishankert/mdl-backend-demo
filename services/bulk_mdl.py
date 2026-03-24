@@ -15,7 +15,7 @@ Usage:
   python bulk_mdl.py --file input.xlsx --url http://localhost:8000
   python bulk_mdl.py --file input.xlsx --url http://localhost:8000 --output ./my_mdls
 """
-
+import zipfile
 import argparse
 import time
 import logging
@@ -71,7 +71,7 @@ def load_rows(xlsx_path: str) -> list[dict]:
     return rows
 
 
-def call_endpoint(base_url: str, ein: str, audit_year: int, auditee_name: str = "") -> dict:
+def call_endpoint(base_url: str, ein: str, audit_year: int, auditee_name: str = "", include_sfsac=False) -> dict:
     url = f"{base_url.rstrip('/')}/build-mdl-docx-auto"
     payload = {
         "ein": ein,
@@ -81,6 +81,7 @@ def call_endpoint(base_url: str, ein: str, audit_year: int, auditee_name: str = 
         "only_flagged": False,
         "max_refs": 15,
         "treasury_listings": ["21.032", "21.031", "21.029", "21.027", "21.026", "21.023"],
+        "download_sfsac": include_sfsac,
     }
     try:
         r = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
@@ -105,7 +106,7 @@ def download_file(url: str, dest_path: Path) -> bool:
         return False
 
 
-def run_bulk(xlsx_path: str, base_url: str, output_dir: str):
+'''def run_bulk(xlsx_path: str, base_url: str, output_dir: str, include_sfsac: bool = False):
     rows = load_rows(xlsx_path)
     total = len(rows)
     results = []
@@ -124,7 +125,7 @@ def run_bulk(xlsx_path: str, base_url: str, output_dir: str):
             ein = row["ein"]
             year = row["audit_year"]
             logging.info(f"  [{batch_start + i + 1}/{total}] EIN={ein} year={year}")
-            result = call_endpoint(base_url, ein, year, auditee_name=row.get("auditee_name", ""))
+            result = call_endpoint(base_url, ein, year, auditee_name=row.get("auditee_name", ""), include_sfsac=include_sfsac)
 
             status = "FAILED"
             url_out = result.get("url", "")
@@ -146,6 +147,13 @@ def run_bulk(xlsx_path: str, base_url: str, output_dir: str):
                 if downloaded:
                     status = "OK"
                     local_path = str(dest.resolve())
+
+                    # Download SF-SAC if returned
+                    sfsac_url = result.get("sfsac_url")
+                    if sfsac_url:
+                        sfsac_filename = f"SF-SAC-{safe_name}-{ein}-{year}.pdf" if safe_name else f"SF-SAC-{ein}-{year}.pdf"
+                        sfsac_dest = out_folder / sfsac_filename
+                        download_file(sfsac_url, sfsac_dest)
                 else:
                     status = "DOWNLOAD_FAILED"
             else:
@@ -183,12 +191,78 @@ def run_bulk(xlsx_path: str, base_url: str, output_dir: str):
     wb_out.save(out_results)
     logging.info(f"Results log saved to: {out_results}")
 
+    # Zip everything in the output folder
+    zip_name = Path(xlsx_path).stem + ".zip"
+    outputs_dir = Path("outputs")
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = outputs_dir / zip_name
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in out_folder.iterdir():
+            if f.is_file():
+                zf.write(f, f.name)
+    logging.info(f"Zipped all files to: {zip_path.resolve()}")
+'''
+
+def run_bulk(xlsx_path: str, base_url: str, output_dir: str, include_sfsac: bool = False):
+    rows = load_rows(xlsx_path)
+    total = len(rows)
+
+    logging.info(f"Sending {total} items to /build-mdl-docx-bulk...")
+
+    url = f"{base_url.rstrip('/')}/build-mdl-docx-bulk"
+    payload = {
+        "items": [{"ein": r["ein"], "audit_year": r["audit_year"], "auditee_name": r.get("auditee_name", "")} for r in rows],
+        "include_sfsac": include_sfsac,
+        "include_awards": True,
+        "max_refs": 15,
+        "treasury_listings": ["21.032", "21.031", "21.029", "21.027", "21.026", "21.023"],
+    }
+
+    try:
+        r = requests.post(url, json=payload, timeout=1200)
+        r.raise_for_status()
+        result = r.json()
+    except Exception as e:
+        logging.error(f"Bulk request failed: {e}")
+        return
+
+    zip_url = result.get("zip_url")
+    logging.info(f"Succeeded: {result.get('succeeded')}/{result.get('total')}")
+
+    if zip_url:
+        logging.info(f"Zip URL: {zip_url}")
+        '''# Download zip to outputs/
+        outputs_dir = Path("outputs")
+        outputs_dir.mkdir(parents=True, exist_ok=True)
+        zip_name = Path(xlsx_path).stem + ".zip"
+        zip_path = outputs_dir / zip_name
+        try:
+            zr = requests.get(zip_url, timeout=120)
+            zr.raise_for_status()
+            zip_path.write_bytes(zr.content)
+            logging.info(f"Zip downloaded to: {zip_path.resolve()}")
+        except Exception as e:
+            logging.warning(f"Zip download failed: {e}")'''
+    else:
+        logging.warning("No zip URL returned.")
+
+    # Write results log
+    out_results = Path(xlsx_path).stem + "_results.xlsx"
+    wb_out = openpyxl.Workbook()
+    ws_out = wb_out.active
+    ws_out.title = "Results"
+    ws_out.append(["ein", "audit_year", "auditee_name", "status", "message"])
+    for r in result.get("results", []):
+        ws_out.append([r.get("ein"), r.get("audit_year"), r.get("auditee_name", ""), r.get("status"), r.get("message", "")])
+    wb_out.save(out_results)
+    logging.info(f"Results log saved to: {out_results}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bulk MDL generator")
+    parser.add_argument("--sfsac", action="store_true", help="Also download SF-SAC PDFs")
     parser.add_argument("--file", required=True, help="Path to input Excel file")
     parser.add_argument("--url", required=True, help="Base URL of the MDL service (e.g. http://localhost:8000)")
     parser.add_argument("--output", default=DEFAULT_OUTPUT_DIR, help="Local folder to save downloaded MDLs (default: mdl_output)")
     args = parser.parse_args()
 
-    run_bulk(args.file, args.url, args.output)
+    run_bulk(args.file, args.url, args.output, include_sfsac=args.sfsac)

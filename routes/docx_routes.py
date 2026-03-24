@@ -3,6 +3,7 @@ import os
 import re
 import base64
 import logging
+import requests
 from io import BytesIO
 from datetime import datetime
 from typing import Dict, Any
@@ -24,6 +25,8 @@ from models.schemas import (
     BuildByReport,
     BuildByReportTemplated,
     BuildAuto,
+    BuildBulk,
+    BulkItem,
 )
 from utils.text_utils import sanitize, title_case, format_name_standard_case
 from services.storage import upload_and_sas, save_local_and_url, parse_conn_str
@@ -92,10 +95,15 @@ def get_local_file(path: str):
     full = os.path.join(LOCAL_SAVE_DIR, path)
     if not os.path.isfile(full):
         raise HTTPException(404, "Not found")
-    return FileResponse(
-        full,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
+
+    if path.endswith(".zip"):
+        media_type = "application/zip"
+    elif path.endswith(".xlsx"):
+        media_type = "application/xlsx"
+    else:
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+    return FileResponse(full, media_type=media_type)
 
 
 @router.post("/build-docx-demo")
@@ -718,14 +726,132 @@ def build_mdl_docx_auto(req: BuildAuto):
         except Exception as e:
             return {"ok": False, "message": f"Unexpected template error: {e}"}
 
-        # 5) Upload (unchanged)
         base = f"MDL-{sanitize(effective_auditee_name)}-{sanitize(req.ein)}-{req.audit_year}.docx"
         blob_name = f"{dest_folder}{base}" if dest_folder else base
         url = upload_and_sas(AZURE_CONTAINER, blob_name, data) if AZURE_CONN_STR else save_local_and_url(blob_name, data)
 
-        return {"ok": True, "url": url, "blob_path": f"{AZURE_CONTAINER}/{blob_name}", "auditee_name": effective_auditee_name }
+        #return {"ok": True, "url": url, "blob_path": f"{AZURE_CONTAINER}/{blob_name}", "auditee_name": effective_auditee_name }
+        
+        sfsac_url = None
+        if req.download_sfsac:
+            try:
+                sfsac_resp = requests.get(
+                    f"https://app.fac.gov/dissemination/summary-report/xlsx/{report_id}",
+                    timeout=30
+                )
+                sfsac_resp.raise_for_status()
+                sfsac_base = f"SF-SAC-{sanitize(effective_auditee_name)}-{sanitize(req.ein)}-{req.audit_year}.xlsx"
+                sfsac_blob = f"{dest_folder}{sfsac_base}" if dest_folder else sfsac_base
+                sfsac_url = upload_and_sas(AZURE_CONTAINER, sfsac_blob, sfsac_resp.content) if AZURE_CONN_STR else save_local_and_url(sfsac_blob, sfsac_resp.content)
+            except Exception as e:
+                logging.warning(f"SF-SAC download failed for {report_id}: {e}")
+
+        return {"ok": True, "url": url, "blob_path": f"{AZURE_CONTAINER}/{blob_name}", "auditee_name": effective_auditee_name, "sfsac_url": sfsac_url}
 
     except HTTPException as e:
         return JSONResponse(status_code=200, content={"ok": False, "message": f"{e.status_code}: {e.detail}"})
     except Exception as e:
         return JSONResponse(status_code=200, content={"ok": False, "message": f"Unhandled error: {e}"})
+
+@router.post("/build-mdl-docx-bulk")
+def build_mdl_docx_bulk(req: BuildBulk):
+    import zipfile
+
+    zip_bio = BytesIO()
+    results = []
+
+    with zipfile.ZipFile(zip_bio, "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in req.items:
+            ein = item.ein.strip().replace("-", "").zfill(9)
+            year = item.audit_year
+
+            # Reuse the auto build logic by constructing a BuildAuto request
+            auto_req = BuildAuto(
+                ein=ein,
+                audit_year=year,
+                auditee_name=item.auditee_name or None,
+                include_awards=True,
+                only_flagged=False,
+                max_refs=req.max_refs,
+                treasury_listings=req.treasury_listings,
+                dest_path=req.dest_path,
+                template_path=req.template_path,
+                aln_reference_xlsx=req.aln_reference_xlsx,
+                download_sfsac=req.include_sfsac,
+            )
+
+            try:
+                logging.info(f"Processing EIN={ein} year={year}...") 
+                result = build_mdl_docx_auto(auto_req)
+                logging.info(f"Done EIN={ein} year={year}")
+
+                # build_mdl_docx_auto returns a dict
+                if isinstance(result, JSONResponse):
+                    body = result.body
+                    import json as _json
+                    result = _json.loads(body)
+
+                if not result.get("ok"):
+                    results.append({
+                        "ein": ein,
+                        "audit_year": year,
+                        "status": "FAILED",
+                        "message": result.get("message", ""),
+                    })
+                    continue
+
+                # Download MDL and add to zip
+                mdl_url = result.get("url", "")
+                auditee_name = result.get("auditee_name", "")
+                safe_name = auditee_name.strip().replace(" ", "_").replace(",", "").replace(".", "")
+                mdl_filename = f"MDL-{safe_name}-{ein}-{year}.docx" if safe_name else f"MDL-{ein}-{year}.docx"
+
+                mdl_resp = requests.get(mdl_url, timeout=60)
+                mdl_resp.raise_for_status()
+                zf.writestr(mdl_filename, mdl_resp.content)
+
+                # Optionally download SF-SAC and add to zip
+                sfsac_url = result.get("sfsac_url")
+                if req.include_sfsac and sfsac_url:
+                    try:
+                        sfsac_resp = requests.get(sfsac_url, timeout=60)
+                        sfsac_resp.raise_for_status()
+                        sfsac_filename = f"SF-SAC-{safe_name}-{ein}-{year}.xlsx" if safe_name else f"SF-SAC-{ein}-{year}.xlsx"
+                        zf.writestr(sfsac_filename, sfsac_resp.content)
+                    except Exception as e:
+                        logging.warning(f"SF-SAC download failed for {ein}/{year}: {e}")
+
+                results.append({
+                    "ein": ein,
+                    "audit_year": year,
+                    "auditee_name": auditee_name,
+                    "status": "OK",
+                })
+
+            except Exception as e:
+                logging.warning(f"Failed for EIN={ein} year={year}: {e}")
+                results.append({
+                    "ein": ein,
+                    "audit_year": year,
+                    "status": "FAILED",
+                    "message": str(e),
+                })
+
+    # Upload zip
+    zip_bytes = zip_bio.getvalue()
+    from datetime import datetime
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    zip_base = f"MDL-Bulk-{timestamp}.zip"
+    dest_folder = str_or_default(req.dest_path, "mdl/bulk/").lstrip("/")
+    zip_blob = f"{dest_folder}{zip_base}"
+    zip_url = upload_and_sas(AZURE_CONTAINER, zip_blob, zip_bytes) if AZURE_CONN_STR else save_local_and_url(zip_blob, zip_bytes)
+
+    ok_count = sum(1 for r in results if r["status"] == "OK")
+    return {
+        "ok": True,
+        "zip_url": zip_url,
+        "total": len(req.items),
+        "succeeded": ok_count,
+        "failed": len(req.items) - ok_count,
+        "results": results,
+    }
